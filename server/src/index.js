@@ -1,4 +1,6 @@
 const http = require('http');
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 const { Server } = require('socket.io');
@@ -74,6 +76,38 @@ app.get('/', (_req, res) => {
   });
 });
 
+// ----------------------------------------------------------- static client
+
+/**
+ * When the React app has been built, this same process serves it.
+ *
+ * One origin for the API, the WebSocket and the page is not just convenient for
+ * a free tier — it deletes an entire class of deployment bug. The split
+ * frontend/backend topology needs the frontend URL to be copied into the
+ * backend's `CLIENT_ORIGIN` and the backend URL copied back into the frontend's
+ * build-time `VITE_SERVER_URL`, and the failure when you get that wrong is a
+ * Socket.IO error that looks like a network problem.
+ *
+ * The API routes are registered above, so they win; this only ever sees
+ * anything else. Socket.IO is also safe because it intercepts its own path on
+ * the raw HTTP server before Express is consulted.
+ */
+const clientDist = path.resolve(__dirname, '../../client/dist');
+const hasBuiltClient = fs.existsSync(path.join(clientDist, 'index.html'));
+
+if (hasBuiltClient) {
+  // `index: false` so the shell is always handed out by the catch-all below and
+  // a stale cached copy of it cannot pin clients to an old bundle.
+  app.use(express.static(clientDist, { index: false, maxAge: '1h' }));
+
+  app.get('*', (req, res, next) => {
+    if (req.path === '/health' || req.path.startsWith('/api/') || req.path.startsWith('/socket.io')) {
+      return next();
+    }
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
+
 // --------------------------------------------------------------------- boot
 
 async function start() {
@@ -92,6 +126,7 @@ async function start() {
     console.log(`  ├─ external host    : ${process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || '(not set — dev)'}`);
     console.log(`  ├─ socket.io path   : /socket.io`);
     console.log(`  ├─ allowed origins  : ${config.clientOrigins.join(', ')}`);
+    console.log(`  ├─ client bundle    : ${hasBuiltClient ? 'served from client/dist' : 'not built (API only)'}`);
     console.log(`  └─ persistence      : ${persistence.label}`);
     console.log('');
   });

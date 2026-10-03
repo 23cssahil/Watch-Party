@@ -94,20 +94,37 @@ Expected tail: `30/30 checks passed`.
 
 ## 3. Deployment
 
-The two halves deploy separately, because only the backend needs a persistent process.
+**One Render web service runs everything.** When `client/dist` exists at boot, the Express
+process serves the built React app alongside the API and Socket.IO on the same origin.
 
-| Piece | Host | Free tier | Notes |
-| --- | --- | --- | --- |
-| Express + Socket.IO | Render | yes | needs WebSocket support → use a **Web Service**, not a background worker |
-| React static build | Vercel / Netlify | yes | `npm run build` → `dist/` |
-| MongoDB Atlas | Atlas | yes (M0) | **optional**; omit it and rooms live in memory |
+That is a deliberate choice over the usual two-service split, because it removes a whole
+class of deployment failure rather than just saving a tab: the split topology needs the
+frontend URL pasted into the backend's `CLIENT_ORIGIN` *and* the backend URL pasted into
+the frontend's build-time `VITE_SERVER_URL`, and getting either wrong produces a Socket.IO
+error that looks exactly like a network problem.
 
-> **Live URL:** _add the Render/Vercel URLs here once deployed._
-> Remember to add the deployed frontend origin to `CLIENT_ORIGIN` on the backend, or
-> Socket.IO's CORS will reject the connection with an error that looks like a network bug.
+| Setting | Value |
+| --- | --- |
+| Root Directory | `server` |
+| Build command | `npm install && cd ../client && npm install && npm run build` |
+| Start command | `npm start` |
+| Instance | Free |
+| Health check path | `/health` |
 
-If the database is left unconfigured the app still works completely; rooms are lost on a
-server restart. That is a deliberate trade-off, discussed in §7.
+Environment variables (all optional):
+
+| Name | Purpose |
+| --- | --- |
+| `MONGODB_URI` | omit entirely → rooms live in memory, app fully functional |
+| `CLIENT_ORIGIN` | only needed if you split the frontend onto Vercel/Netlify instead |
+| `PORT` | set by Render (default 4000 locally) |
+
+> **Live URL:** _fill in after the first deploy._
+>
+> The free instance sleeps after ~15 min without traffic, so the first visitor waits
+> ~30–50 s. That is a property of the tier, not of the app.
+
+Rooms are lost on a restart unless `MONGODB_URI` is configured — discussed in §8.
 
 ---
 
