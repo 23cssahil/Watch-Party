@@ -37,21 +37,45 @@ export default function ShareCard() {
 
   return (
     <div className="share">
-      <h3 className="panel__title">Invite people</h3>
+      <div className="share__header">
+        <span className="share__icon" aria-hidden>🔗</span>
+        <div>
+          <h3 className="share__title">Invite People</h3>
+          <p className="share__subtitle">Share the code or link below</p>
+        </div>
+      </div>
 
-      <button type="button" className="share__code" onClick={() => copy(roomId, 'code')}>
-        <span>{roomId}</span>
-        <em>{copied === 'code' ? 'Copied' : 'Copy code'}</em>
+      <button
+        type="button"
+        className={`share__code ${copied === 'code' ? 'share__code--copied' : ''}`}
+        onClick={() => copy(roomId, 'code')}
+        title="Click to copy room code"
+      >
+        <span className="share__code-label">Room Code</span>
+        <span className="share__code-value">{roomId}</span>
+        <span className="share__code-action">
+          {copied === 'code' ? '✓ Copied!' : 'Tap to copy'}
+        </span>
       </button>
 
-      <button type="button" className="share__link" onClick={() => copy(link, 'link')}>
+      <div className="share__divider"><span>or share link</span></div>
+
+      <button
+        type="button"
+        className={`share__link ${copied === 'link' ? 'share__link--copied' : ''}`}
+        onClick={() => copy(link, 'link')}
+        title="Click to copy invite link"
+      >
+        <span className="share__link-icon">{copied === 'link' ? '✓' : '🔗'}</span>
         <span className="share__url">{link}</span>
-        <em>{copied === 'link' ? 'Copied' : 'Copy link'}</em>
+        <span className="share__link-badge">
+          {copied === 'link' ? 'Copied!' : 'Copy'}
+        </span>
       </button>
 
       <p className="share__hint">
-        Anyone who opens this link joins as a viewer — they can watch and chat, and can ask you to
-        change what is playing.
+        Anyone with this link joins as a <strong>Viewer</strong> — they can watch, chat, and request
+        playback changes.
       </p>
     </div>
   );

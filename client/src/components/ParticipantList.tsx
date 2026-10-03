@@ -30,9 +30,10 @@ export default function ParticipantList() {
 
   return (
     <div className="people">
-      <h3 className="panel__title">
-        In the room <span>{participants.length}</span>
-      </h3>
+      <div className="people__header">
+        <span className="people__count-pill">{participants.length}</span>
+        <h3 className="people__heading">In the room</h3>
+      </div>
 
       <ul className="people__list">
         {participants.map((person) => (
@@ -63,8 +64,12 @@ function ParticipantRow({ person, isMe, isHost, canGovern, waiting }: RowProps) 
 
   return (
     <li className={`person ${isMe ? 'person--me' : ''}`}>
-      <span className="person__avatar" style={{ background: colorFor(person.username) }}>
+      <span
+        className="person__avatar"
+        style={{ background: colorFor(person.username) }}
+      >
         {initials(person.username)}
+        {isMe && <span className="person__avatar-ring" />}
       </span>
 
       <div className="person__body">
@@ -72,10 +77,15 @@ function ParticipantRow({ person, isMe, isHost, canGovern, waiting }: RowProps) 
           {person.username}
           {isMe && <em>you</em>}
         </p>
-        <p className="person__role">
+        <div className="person__meta">
           <RoleBadge role={person.role} />
-          {waiting > 0 && <span className="person__waiting">{waiting} waiting</span>}
-        </p>
+          {waiting > 0 && (
+            <span className="person__waiting">
+              <span className="person__waiting-dot" />
+              {waiting} pending
+            </span>
+          )}
+        </div>
       </div>
 
       {governable && (
@@ -114,6 +124,6 @@ function ToolButton({
 }
 
 export function RoleBadge({ role }: { role: Role }) {
-  const label = role === 'host' ? 'Host' : role === 'moderator' ? 'Mod' : 'Viewer';
+  const label = role === 'host' ? '👑 Host' : role === 'moderator' ? '🛡 Mod' : 'Viewer';
   return <span className={`badge badge--${role}`}>{label}</span>;
 }
