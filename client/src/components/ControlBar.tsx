@@ -27,12 +27,40 @@ export default function ControlBar({ player }: Props) {
   const pending = useRoomStore((state) => state.myPendingActions);
   const [urlDraft, setUrlDraft] = useState('');
   const [urlOpen, setUrlOpen] = useState(false);
+  /**
+   * The value being dragged, or `null` when nobody is scrubbing.
+   *
+   * The slider used to be a fully-controlled input bound to the player's real
+   * `position` — which only refreshes a few times a second and lags behind an
+   * async `seekTo`. So while the host dragged, every move both flooded the server
+   * with `seek` events *and* re-rendered the thumb back to the stale position it
+   * had not reached yet: the handle fought the finger and looked stuck. Holding the
+   * in-flight value here lets the thumb track the pointer exactly, and the seek is
+   * committed once, on release.
+   */
+  const [scrub, setScrub] = useState<number | null>(null);
 
   const canControl = Boolean(capabilities?.allowedActions.includes('play'));
   const position = player.duration > 0 ? player.position : (sync?.position ?? 0);
   const duration = player.duration || sync?.duration || 0;
+  const seekValue = scrub ?? Math.min(position, duration || position);
 
   const pendingFor = (action: string) => pending.some((request) => request.action === action);
+
+  /**
+   * Commit a scrub: one seek to the server, and — for someone who can actually
+   * control the room — an instant local jump so the host sees it right away
+   * instead of waiting a round-trip. A Participant gets no local jump: their seek
+   * is only a request, so previewing it would move them ahead of a room that has
+   * not agreed yet.
+   */
+  const commitSeek = () => {
+    if (scrub === null) return;
+    const target = scrub;
+    setScrub(null);
+    if (canControl) player.seekLocal(target);
+    seek(target);
+  };
 
   const submitVideo = (event: FormEvent) => {
     event.preventDefault();
@@ -57,7 +85,7 @@ export default function ControlBar({ player }: Props) {
         </button>
 
         <span className="controls__time">
-          {formatTime(position)} <em>/</em> {duration ? formatTime(duration) : '--:--'}
+          {formatTime(seekValue)} <em>/</em> {duration ? formatTime(duration) : '--:--'}
         </span>
 
         <input
@@ -66,8 +94,11 @@ export default function ControlBar({ player }: Props) {
           min={0}
           max={Math.max(duration, 1)}
           step={0.5}
-          value={Math.min(position, duration || position)}
-          onChange={(event) => seek(Number(event.target.value))}
+          value={seekValue}
+          onChange={(event) => setScrub(Number(event.target.value))}
+          onPointerUp={commitSeek}
+          onKeyUp={commitSeek}
+          onBlur={commitSeek}
           disabled={!sync || duration <= 0}
           aria-label="Seek"
         />
