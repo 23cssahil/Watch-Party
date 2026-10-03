@@ -37,6 +37,20 @@
 
   --panel-width: 340px;
   --bar-height: 58px;
+
+  /* --- premium layer: fonts, gradients, motion, glow --------------------- */
+  --font-display: 'Space Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* a three-stop brand ramp used wherever a flat red looked toy-like */
+  --grad-accent: linear-gradient(120deg, #ff4757 0%, #ff6b81 42%, #a06bff 100%);
+  --grad-accent-hover: linear-gradient(120deg, #ff5b6b 0%, #ff7f90 42%, #b086ff 100%);
+  /* glass fill + a gradient hairline border drawn with the padding-box trick */
+  --glass: linear-gradient(165deg, rgba(38, 44, 64, 0.72), rgba(14, 17, 26, 0.66));
+  --glass-border: linear-gradient(160deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.03));
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --glow-accent: 0 20px 55px -18px rgba(255, 71, 87, 0.6);
+  --glow-violet: 0 20px 55px -18px rgba(124, 92, 255, 0.55);
 }
 
 * {
@@ -1516,6 +1530,224 @@ a {
   }
 }
 
+
+/* ==========================================================================
+   Premium layer — appended last so it wins the cascade at equal specificity.
+   Everything here only restyles existing selectors (no markup contract is
+   changed), so the Room layout and every component keep working as before.
+   ========================================================================== */
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(46px, -34px) scale(1.16); }
+}
+@keyframes drift2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-54px, 32px) scale(1.22); }
+}
+@keyframes sheen {
+  to { background-position: 220% center; }
+}
+
+/* display face for the words that carry the brand */
+.home__brand h1,
+.pane h2,
+.gate__card h2,
+.home__features strong,
+.room__brand {
+  font-family: var(--font-display);
+}
+
+/* ---- animated aurora behind the landing page ---- */
+.home__glow {
+  inset: -300px -160px auto;
+  height: 660px;
+  background:
+    radial-gradient(45% 45% at 28% 38%, rgba(255, 71, 87, 0.26), transparent 70%),
+    radial-gradient(45% 45% at 74% 26%, rgba(124, 92, 255, 0.24), transparent 70%),
+    radial-gradient(40% 40% at 55% 62%, rgba(46, 213, 115, 0.1), transparent 70%);
+  filter: blur(48px);
+}
+.home__glow::before,
+.home__glow::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(64px);
+}
+.home__glow::before {
+  width: 360px;
+  height: 360px;
+  left: 10%;
+  top: 10px;
+  background: radial-gradient(circle, rgba(255, 71, 87, 0.5), transparent 65%);
+  animation: drift 17s var(--ease) infinite;
+}
+.home__glow::after {
+  width: 320px;
+  height: 320px;
+  right: 12%;
+  top: -10px;
+  background: radial-gradient(circle, rgba(124, 92, 255, 0.5), transparent 65%);
+  animation: drift2 21s var(--ease) infinite;
+}
+
+/* ---- brand lockup: gradient wordmark + glowing mark ---- */
+.home__brand {
+  animation: rise 0.6s var(--ease) both;
+}
+.home__brand h1 {
+  font-size: 31px;
+  font-weight: 700;
+  letter-spacing: -0.7px;
+  background: var(--grad-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--accent);
+}
+.logo-mark {
+  box-shadow: var(--glow-accent), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--line-strong);
+}
+
+/* ---- glass surfaces (padding-box fill + border-box hairline) ---- */
+.home__card {
+  background: var(--glass) padding-box, var(--glass-border) border-box;
+  border: 1px solid transparent;
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  animation: rise 0.7s var(--ease) 0.08s both;
+}
+.home__card::before {
+  content: '';
+  position: absolute;
+  left: 26px;
+  right: 26px;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+}
+.pane {
+  background: rgba(11, 13, 18, 0.42);
+  border: 1px solid var(--line);
+  transition: transform 0.28s var(--ease), border-color 0.28s var(--ease), box-shadow 0.28s var(--ease);
+}
+.pane:hover {
+  transform: translateY(-3px);
+  border-color: var(--line-strong);
+  box-shadow: 0 18px 40px -22px rgba(0, 0, 0, 0.8);
+}
+.gate__card {
+  background: var(--glass) padding-box, var(--glass-border) border-box;
+  border: 1px solid transparent;
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  box-shadow: var(--shadow);
+  animation: rise 0.6s var(--ease) both;
+}
+
+/* ---- buttons: brand ramp, lift, and a shine sweep on the primary ---- */
+.btn {
+  transition: transform 0.18s var(--ease), box-shadow 0.28s var(--ease), background 0.24s ease,
+    border-color 0.24s ease, opacity 0.18s ease;
+}
+.btn--primary {
+  position: relative;
+  overflow: hidden;
+  border-color: transparent;
+  background: var(--grad-accent);
+  box-shadow: var(--glow-accent);
+}
+.btn--primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 32%, rgba(255, 255, 255, 0.4) 50%, transparent 68%);
+  transform: translateX(-130%);
+  transition: transform 0.7s var(--ease);
+  pointer-events: none;
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--grad-accent-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 26px 62px -16px rgba(255, 71, 87, 0.72);
+}
+.btn--primary:hover:not(:disabled)::after {
+  transform: translateX(130%);
+}
+.btn--primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+.btn--ghost {
+  background: rgba(255, 255, 255, 0.02);
+}
+.btn--ghost:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---- inputs: recessed fill + accent focus ring ---- */
+.field input,
+.chat__form input,
+.controls__video input,
+.gate__input {
+  background: rgba(9, 11, 17, 0.62);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+  transition: border-color 0.2s ease, box-shadow 0.24s var(--ease), background 0.2s ease;
+}
+.field input:focus,
+.chat__form input:focus,
+.controls__video input:focus,
+.gate__input:focus {
+  background: rgba(9, 11, 17, 0.85);
+  box-shadow: 0 0 0 3px var(--accent-soft), inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+/* ---- feature strip: staggered entrance + hover glow ---- */
+.home__features {
+  animation: rise 0.7s var(--ease) 0.16s both;
+}
+.home__features li {
+  position: relative;
+  overflow: hidden;
+  background: var(--glass) padding-box, var(--glass-border) border-box;
+  border: 1px solid transparent;
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  transition: transform 0.26s var(--ease), box-shadow 0.26s var(--ease);
+}
+.home__features li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--grad-accent);
+  opacity: 0.55;
+  transition: opacity 0.26s var(--ease);
+}
+.home__features li:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--glow-violet);
+}
+.home__features li:hover::before {
+  opacity: 1;
+}
+
+/* ---- room bar: deeper glass so the video reads behind it ---- */
+.room__bar {
+  background: rgba(9, 11, 17, 0.66);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+}
 
 @media (prefers-reduced-motion: reduce) {
   *,
