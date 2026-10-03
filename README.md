@@ -5,7 +5,7 @@ server-side roles and an approval queue.
 
 | | |
 | --- | --- |
-| **Live app** | _see "Deployment" below_ |
+| **Live app** | https://watch-party-ay7d.onrender.com |
 | **Backend** | Node.js · Express · Socket.IO |
 | **Frontend** | React 18 · TypeScript · Vite · zustand |
 | **Database** | MongoDB (optional — the server runs fully in memory without it) |
@@ -126,7 +126,8 @@ Environment variables (all optional):
 | `CLIENT_ORIGIN` | only needed if you split the frontend onto Vercel/Netlify instead |
 | `PORT` | set by Render (default 4000 locally) |
 
-> **Live URL:** _fill in after the first deploy._
+> **Live app:** https://watch-party-ay7d.onrender.com
+> · API info at `/api` · status at `/health`
 >
 > The free instance sleeps after ~15 min without traffic, so the first visitor waits
 > ~30–50 s. That is a property of the tier, not of the app.
@@ -432,4 +433,17 @@ Stated plainly, because each is a boundary rather than a defect:
   authority cannot resolve its own requests.
 - **Chat is not moderated or persisted.** Sanitised and length-capped, but a room full of
   participants can flood it at one message per 700 ms each.
-```
+
+### `npm audit` findings, and why they were not "fixed"
+
+`npm audit` in `client/` reports 4 issues (3 moderate, 1 high). They were reviewed rather
+than auto-resolved, because both fixes are breaking major upgrades:
+
+| Advisory | Reachable here? | Why |
+| --- | --- | --- |
+| `esbuild` / `vite` dev-server request forwarding | **No** | Affects `vite dev` only. Production is a static bundle served by Express; the dev server is never deployed. Fix requires Vite 5 → 8. |
+| React Router open redirect via backslash in `to` | **No** | Every `to` in this app is built from a fixed prefix (`/` or `/room/`) and user text can only appear *after* it, so a value can never become protocol-relative. Fix requires 6 → 7. |
+| React Router SSR `deserializeErrors()` | **No** | There is no SSR — this is a client-only SPA. |
+
+A blind `npm audit fix --force` would have made the build red for no security gain. The
+right answer to an audit report is a reachability argument, not a version bump.
