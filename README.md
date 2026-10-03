@@ -144,12 +144,59 @@ Environment variables (all optional):
 
 | Name | Purpose |
 | --- | --- |
-| `MONGODB_URI` | set on the deployed service → rooms are restored after a restart or redeploy (`watch_party.rooms`). Unset → in-memory only, and the app is still fully functional |
+| `MONGODB_URI` | set on the deployed service → rooms are restored after a restart or redeploy (`watch_party.rooms`). Unset → in-memory only, and the app is still fully functional. It is a credential, so it belongs in the host's environment screen and in the gitignored `server/.env` — never in a commit |
 | `CLIENT_ORIGIN` | only needed if you split the frontend onto Vercel/Netlify instead |
 | `PORT` | set by Render (default 4000 locally) |
 
 > **Live app:** https://watch-party-ay7d.onrender.com
 > · API info at `/api` · status at `/health`
+
+### Setting the database variable on Render without opening the cluster to the world
+
+The variable itself is two clicks. The part that matters is that a connection string is a
+**password in a URL**, and once it sits on a hosting provider it is readable by anyone with
+access to that dashboard — so the cluster has to be reachable *only* from where it should be,
+and the credential has to be worth less than it looks.
+
+1. **Render → your service → Environment → Add Environment Variable**
+   - Key: `MONGODB_URI`
+   - Value: the Atlas *Connect → Drivers* string (the `mongodb://…?ssl=true&replicaSet=…&authSource=admin`
+     form, or the `mongodb+srv://` one — the driver accepts either, and TLS is mandatory in
+     both, so there is no plaintext fallback to worry about)
+   - Add **nothing** to the repository. `server/.env` is gitignored, and `git ls-files` proves
+     no env file or run capture is tracked.
+   - Save → Render redeploys. That restart *is* the deploy; no separate Manual Deploy needed
+     unless the code also changed.
+
+2. **Atlas → Security → Network Access → Add IP Address → `0.0.0.0/0`**
+   This is not sloppiness, it is the shape of the problem: Render's free tier does not publish
+   static egress IPs, so an allowlist of specific addresses cannot describe "my service".
+   Setting it means *any* host may attempt a connection and the credential is the only barrier,
+   which is exactly why step 3 is not optional.
+   (The alternative that keeps the allowlist tight — a fixed IP / VPC peering / a tunnel — costs
+   money or a second service, neither of which an assignment needs.)
+
+3. **Atlas → Database Access → create a dedicated user for this project**, e.g. `watchparty`,
+   with `Built-in Role → readWrite → db: watch_party`, and use *that* user in the URI.
+   Reusing an admin user that can also write your other databases turns one leaked string into
+   a much bigger incident than "someone changed a room's video". Least privilege is the whole
+   point: the worst this URI can now do is damage one collection.
+
+4. **If the string was ever pasted somewhere it should not have been** — a chat, a screenshot,
+   a deploy log, a repo that was briefly public — regenerate that user's password in Atlas and
+   update the one variable in Render. Rotation is cheap here (one restart) and worthless to
+   delay, because the old string keeps working until it is rotated.
+
+5. **Verify it the honest way: `curl https://…/health`.** The `persistence` field is one of
+   exactly three strings, and the third one exists because the failure it describes is silent
+   from the outside:
+   - `in-memory` → no `MONGODB_URI` at all. Rooms die on restart.
+   - `mongodb` → connected. Rooms are restored after a restart, and `npm run verify:db` passes.
+   - `mongodb (configured, NOT connected)` → the variable is set and useless: wrong password,
+     or an allowlist that does not include this host. The app still works completely, which is
+     why this reading is a live value from the driver's connection state rather than a constant
+     copied from the config (`db/mongo.js`). Without it, a deploy that silently lost its
+     database looks identical to one that has it.
 
 ### Why a shared link can look dead — and what the app now does about it
 

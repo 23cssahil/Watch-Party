@@ -38,7 +38,21 @@ function createPersistence() {
 
   return {
     enabled: true,
-    label: 'mongodb',
+    /**
+     * Reported by `/health` and the boot log, and it is a *getter* on purpose.
+     *
+     * `enabled` describes what was configured; this must describe what is
+     * actually happening, because the most likely production failure is a URI
+     * that is present and wrong — an Atlas Network Access list that does not
+     * include the PaaS egress range is exactly that, and it is invisible from
+     * the outside: the app appears fully working, and rooms quietly die on the
+     * next restart. A static label here would say "mongodb" the whole time.
+     */
+    get label() {
+      return mongoose.connection.readyState === 1
+        ? 'mongodb'
+        : 'mongodb (configured, NOT connected)';
+    },
 
     async connect() {
       try {
@@ -47,8 +61,14 @@ function createPersistence() {
         return true;
       } catch (error) {
         // Degrade rather than die: a misconfigured or unreachable Atlas cluster
-        // must not take the WebSocket server down with it.
-        console.error('[persistence] MongoDB unavailable, falling back to in-memory:', error.message);
+        // must not take the WebSocket server down with it. The name of the most
+        // likely cause is printed, because that is the line worth reading in a
+        // deploy log you are scanning once.
+        console.error(
+          '[persistence] MongoDB unavailable, running in-memory for now:',
+          error.message,
+          '| if this is a deployed instance, check Atlas -> Network Access allows this host'
+        );
         return false;
       }
     },
