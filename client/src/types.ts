@@ -192,6 +192,7 @@ export interface ServerEvents {
   chat_message: (payload: ChatPayload) => void;
   reaction: (payload: ReactionPayload) => void;
   removed_from_room: (payload: RemovedPayload) => void;
+  room_deleted: (payload: { roomId: string; message: string }) => void;
   room_error: (payload: RoomErrorPayload) => void;
 }
 
