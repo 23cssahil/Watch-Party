@@ -39,14 +39,8 @@ export default function SidePanel({ open, onClose }: Props) {
     { id: 'chat', label: 'Chat' },
   ];
 
-  /**
-   * `inert` is the fix for aria-hidden focus trapping issues on closed panels.
-   * React 18 has no type for the attribute, hence the cast.
-   */
-  const inertWhenClosed = open ? {} : ({ inert: '' } as Record<string, string>);
-
   return (
-    <aside className={`panel ${open ? 'panel--open' : ''}`} aria-hidden={!open} {...inertWhenClosed}>
+    <aside className={`panel ${open ? 'panel--open' : ''}`}>
       <div className="panel__head">
         <div className="panel__tabs" role="tablist">
           {tabs

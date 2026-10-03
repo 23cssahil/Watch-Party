@@ -318,7 +318,12 @@ class Room {
 
     switch (action) {
       case 'play':
-        this.state.currentTime = livePosition;
+        // If the video reached the end, playing again should restart it.
+        // Otherwise, YouTube's player restarts it locally but the server thinks
+        // it's still at the end, causing a drift loop.
+        this.state.currentTime = (this.state.duration > 0 && livePosition >= this.state.duration)
+          ? 0
+          : livePosition;
         this.state.isPlaying = true;
         break;
 
