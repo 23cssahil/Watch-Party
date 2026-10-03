@@ -926,10 +926,27 @@ a {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  /*
+    `overflow-y: auto` alone makes `overflow-x` compute to `auto` too (a CSS
+    rule: a non-visible axis forces the other off `visible`), so any child a few
+    pixels wider than the rail turned the panel into a left/right swipeable
+    surface. Pin it to hidden and let the grid children below shrink instead of
+    expanding the track.
+  */
+  overflow-x: hidden;
   padding: 16px;
   display: grid;
   gap: 20px;
   align-content: start;
+}
+/* Grid/flex children default to `min-width: auto`, which lets long unbreakable
+   content (the invite URL, the spaced room code) widen the whole column. `0`
+   hands the truncation back to the ellipsis rules that already exist. */
+.panel__body > * {
+  min-width: 0;
+}
+.share > * {
+  min-width: 0;
 }
 .panel__title {
   font-size: 11px;
