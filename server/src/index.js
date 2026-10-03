@@ -80,8 +80,16 @@ async function start() {
   if (persistence.enabled) await persistence.connect();
 
   server.listen(config.port, () => {
+    // Read the real bound address rather than assuming localhost: on a PaaS the
+    // external host is not `localhost`, and a misleading line here wastes time
+    // exactly when the deploy logs are the only thing you have to go on.
+    const bound = server.address();
+    const local = bound && typeof bound === 'object'
+      ? `${bound.address === '::' ? '0.0.0.0' : bound.address}:${bound.port}`
+      : String(bound);
     console.log(`\n  YouTube Watch Party server`);
-    console.log(`  ├─ listening        : http://localhost:${config.port}`);
+    console.log(`  ├─ listening        : http://${local}`);
+    console.log(`  ├─ external host    : ${process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || '(not set — dev)'}`);
     console.log(`  ├─ socket.io path   : /socket.io`);
     console.log(`  ├─ allowed origins  : ${config.clientOrigins.join(', ')}`);
     console.log(`  └─ persistence      : ${persistence.label}`);
