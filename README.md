@@ -106,10 +106,17 @@ error that looks exactly like a network problem.
 | Setting | Value |
 | --- | --- |
 | Root Directory | `server` |
-| Build command | `npm install && cd ../client && npm install && npm run build` |
+| Build command | `npm install && cd ../client && npm install && npm run build && cp -r dist ../server/client-dist` |
 | Start command | `npm start` |
 | Instance | Free |
 | Health check path | `/health` |
+
+The final `cp` is the part that matters. Render puts only the **Root Directory's** contents
+in the running image, so `client/dist` — a sibling of `server/` — exists while building and
+then vanishes. Copying the bundle to `server/client-dist` brings it inside the directory
+that actually ships. The server checks `server/client-dist` first and falls back to
+`client/dist`, so local `npm start` needs no copy step and the same code runs in both
+layouts.
 
 Environment variables (all optional):
 

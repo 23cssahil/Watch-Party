@@ -42,6 +42,31 @@ const roomManager = new RoomManager(io, persistence);
 const handler = new MessageHandler({ roomManager });
 handler.register(io);
 
+/**
+ * Where the built React app lives, if it was built at all.
+ *
+ * Resolved before the routes because the route table depends on it: Express
+ * answers a path with the *first* matching handler, so the service-info route
+ * has to know whether the SPA is going to own `/`.
+ *
+ * Two candidates, in this order:
+ *   - `server/client-dist` — the deployment layout. Render's Root Directory is
+ *     `server` and only that directory's contents reach the running image, so
+ *     the build step copies the bundle in here. The sibling `client/` folder
+ *     exists while building and is gone by the time the process starts, which is
+ *     exactly the trap this avoids.
+ *   - `client/dist` — the local monorepo layout, so `npm start` works here with
+ *     no copy step.
+ */
+const CLIENT_BUNDLE_CANDIDATES = [
+  path.resolve(__dirname, '../client-dist'),
+  path.resolve(__dirname, '../../client/dist'),
+];
+
+const clientDist = CLIENT_BUNDLE_CANDIDATES.find((dir) =>
+  fs.existsSync(path.join(dir, 'index.html'))
+);
+
 // ------------------------------------------------------------------ HTTP API
 
 app.use(cors({ origin: config.clientOrigins }));
@@ -68,13 +93,22 @@ app.get('/api/rooms/:code', (req, res) => {
   res.json({ ok: true, room: preview });
 });
 
-app.get('/', (_req, res) => {
+/**
+ * Service info. It only claims `/` when there is no client bundle to serve;
+ * otherwise the SPA owns `/` and this stays reachable at `/api`. Registering it
+ * unconditionally would shadow the app shell forever, and the symptom is
+ * confusing from the outside: a healthy deploy that appears to serve only JSON.
+ */
+const serviceInfo = (_req, res) => {
   res.json({
     name: 'YouTube Watch Party — API',
     realtime: 'Socket.IO on this same origin, path /socket.io',
     docs: '/health',
+    client: clientDist ? 'served from ' + clientDist : 'not built',
   });
-});
+};
+app.get('/api', serviceInfo);
+if (!clientDist) app.get('/', serviceInfo);
 
 // ----------------------------------------------------------- static client
 
@@ -92,10 +126,7 @@ app.get('/', (_req, res) => {
  * anything else. Socket.IO is also safe because it intercepts its own path on
  * the raw HTTP server before Express is consulted.
  */
-const clientDist = path.resolve(__dirname, '../../client/dist');
-const hasBuiltClient = fs.existsSync(path.join(clientDist, 'index.html'));
-
-if (hasBuiltClient) {
+if (clientDist) {
   // `index: false` so the shell is always handed out by the catch-all below and
   // a stale cached copy of it cannot pin clients to an old bundle.
   app.use(express.static(clientDist, { index: false, maxAge: '1h' }));
@@ -126,7 +157,7 @@ async function start() {
     console.log(`  ├─ external host    : ${process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || '(not set — dev)'}`);
     console.log(`  ├─ socket.io path   : /socket.io`);
     console.log(`  ├─ allowed origins  : ${config.clientOrigins.join(', ')}`);
-    console.log(`  ├─ client bundle    : ${hasBuiltClient ? 'served from client/dist' : 'not built (API only)'}`);
+    console.log(`  ├─ client bundle    : ${clientDist ? `served from ${clientDist}` : 'NOT FOUND (API only) — check the build step'}`);
     console.log(`  └─ persistence      : ${persistence.label}`);
     console.log('');
   });
