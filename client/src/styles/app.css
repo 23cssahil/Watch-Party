@@ -564,6 +564,57 @@ a {
   cursor: default;
 }
 
+/*
+  The room's sanctioned full-screen control. It sits above the click blocker
+  (z-index 4) so it is always reachable, and only appears once the player is
+  ready so it never invites a click into an empty black rectangle.
+*/
+.stage__fs {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 4;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: rgba(7, 9, 16, 0.6);
+  color: #fff;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: background 0.2s ease, transform 0.15s var(--ease), border-color 0.2s ease;
+}
+.stage__fs:hover {
+  background: rgba(255, 71, 87, 0.85);
+  border-color: transparent;
+  transform: scale(1.07);
+}
+
+/*
+  When the stage is full-screen it becomes the whole viewport: drop the page
+  chrome, let the frame grow past its in-page height cap, and keep the control
+  bar pinned beneath the video. `100vh` now equals the physical screen, so the
+  video fills far more of it than the letterboxed in-page layout.
+*/
+.stage:fullscreen,
+.stage:-webkit-full-screen {
+  padding: 16px 20px;
+  background: #05060a;
+  justify-content: center;
+  overflow: hidden;
+}
+.stage:fullscreen .stage__frame,
+.stage:-webkit-full-screen .stage__frame {
+  max-height: calc(100vh - 190px);
+  border: none;
+  box-shadow: none;
+}
+
 .stage__overlay {
   position: absolute;
   inset: 0;

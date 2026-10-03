@@ -1,9 +1,40 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRoomStore } from '../store/roomStore';
 import { useYouTubeSync } from '../hooks/useYouTubeSync';
 import { requestSync } from '../actions';
 import ControlBar from './ControlBar';
 import ReactionBar from './ReactionBar';
+
+/**
+ * Vendor-safe Fullscreen API calls.
+ *
+ * Safari still ships the prefixed form, and the property names differ across
+ * engines, so every access is funnelled through these three helpers rather than
+ * sprinkled through the component. Casting is localised here so the rest of the
+ * file stays in the normal DOM typings.
+ */
+type FsElement = HTMLElement & { webkitRequestFullscreen?: () => void };
+type FsDocument = Document & {
+  webkitFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => void;
+};
+
+const fullscreenNode = (): Element | null => {
+  const doc = document as FsDocument;
+  return doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+};
+
+const enterFullscreen = (el: HTMLElement) => {
+  const node = el as FsElement;
+  if (node.requestFullscreen) void node.requestFullscreen();
+  else node.webkitRequestFullscreen?.();
+};
+
+const exitFullscreen = () => {
+  const doc = document as FsDocument;
+  if (doc.exitFullscreen) void doc.exitFullscreen();
+  else doc.webkitExitFullscreen?.();
+};
 
 /**
  * Hosts the YouTube IFrame and every overlay that can sit on top of it.
@@ -14,12 +45,36 @@ import ReactionBar from './ReactionBar';
  */
 export default function VideoStage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLElement | null>(null);
   const sync = useRoomStore((state) => state.sync);
   const status = useRoomStore((state) => state.status);
   const player = useYouTubeSync(containerRef);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Mirror the browser's real fullscreen state, so Esc (and the OS gesture that
+  // leaves fullscreen without a click) keeps the button's icon honest rather than
+  // stuck reading "exit" after the room is already back in the page.
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(Boolean(fullscreenNode()));
+    document.addEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
+  }, []);
+
+  // The whole stage goes fullscreen — not just the iframe — so the ControlBar
+  // stays reachable. YouTube's own fullscreen button is covered by the click
+  // blocker (a native control there would bypass the permission gate), so this
+  // is the room's one sanctioned way to enlarge the video.
+  const toggleFullscreen = () => {
+    if (fullscreenNode()) exitFullscreen();
+    else if (stageRef.current) enterFullscreen(stageRef.current);
+  };
 
   return (
-    <section className="stage">
+    <section className="stage" ref={stageRef}>
       <div className="stage__frame">
         <div ref={containerRef} className="stage__player" />
 
@@ -33,6 +88,18 @@ export default function VideoStage() {
           banner) sit above this div via z-index and remain fully clickable.
         */}
         <div className="stage__click-blocker" aria-hidden="true" />
+
+        {player.ready && !player.error && (
+          <button
+            type="button"
+            className="stage__fs"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+            aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}
+          >
+            {isFullscreen ? '✕' : '⛶'}
+          </button>
+        )}
 
         {!player.ready && !player.error && (
           <div className="stage__overlay">
