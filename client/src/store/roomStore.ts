@@ -60,6 +60,15 @@ interface RoomStore {
   reactions: FloatingReaction[];
   /** Set when the Host kicks us; the Room page swaps to a locked screen. */
   removed: { by: string; reason: string } | null;
+  /**
+   * Why the last join attempt was refused, or null while it is working.
+   *
+   * Without this the failure is a toast that expires: a dead share link would
+   * leave the room page sitting there with a black stage and no explanation,
+   * which is indistinguishable from "the app is broken". The Room page swaps to
+   * a real screen instead, and clearing this is also how a retry is requested.
+   */
+  joinError: string | null;
   /** True while the local player has not caught up with `sync`. */
   needsTapToSync: boolean;
 
@@ -79,6 +88,7 @@ interface RoomStore {
   setStatus: (status: ConnectionStatus, transport?: string) => void;
   setNeedsTapToSync: (value: boolean) => void;
   setRemoved: (removed: { by: string; reason: string } | null) => void;
+  setJoinError: (message: string | null) => void;
   reset: () => void;
 }
 
@@ -97,6 +107,7 @@ const initial = {
   toasts: [] as Toast[],
   reactions: [] as FloatingReaction[],
   removed: null as { by: string; reason: string } | null,
+  joinError: null as string | null,
   needsTapToSync: false,
 };
 
@@ -128,6 +139,10 @@ export const useRoomStore = create<RoomStore>((set, get) => ({
       requests: snapshot.pendingRequests,
       chat: snapshot.chat,
       removed: null,
+      // The server just handed us the room, so any earlier refusal is history —
+      // this is what stops a stale "no such room" from outliving the join that
+      // finally worked.
+      joinError: null,
     }),
 
   applySync: (sync) => {
@@ -199,6 +214,8 @@ export const useRoomStore = create<RoomStore>((set, get) => ({
       participants: removed ? [] : state.participants,
       requests: removed ? [] : state.requests,
     })),
+
+  setJoinError: (message) => set({ joinError: message }),
 
   reset: () => set({ ...initial }),
 }));

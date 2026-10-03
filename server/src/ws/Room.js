@@ -45,6 +45,13 @@ class Room {
     /** @type {Map<string, Participant>} keyed by stable userId */
     this.participants = new Map();
 
+    /**
+     * Memoised join-ordered view of `participants` (see `listParticipants`).
+     * Only ever invalidated where the Map itself grows or shrinks.
+     * @type {Participant[]|null}
+     */
+    this.roster = null;
+
     /** @type {Map<string, object>} pending approval requests keyed by requestId */
     this.requests = new Map();
 
@@ -89,17 +96,6 @@ class Room {
     return this.state.duration > 0 ? Math.min(position, this.state.duration) : position;
   }
 
-  /**
-   * @param {string} socketId
-   * @returns {Participant|undefined}
-   */
-  findBySocketId(socketId) {
-    for (const participant of this.participants.values()) {
-      if (participant.socketId === socketId) return participant;
-    }
-    return undefined;
-  }
-
   /** @param {string} userId @returns {Participant|undefined} */
   getParticipant(userId) {
     return this.participants.get(userId);
@@ -113,9 +109,29 @@ class Room {
     return undefined;
   }
 
-  /** @returns {Participant[]} */
+  /**
+   * The roster in join order — the order people see in the sidebar, and the
+   * order host succession follows.
+   *
+   * Cached rather than re-sorted per call. One playback event can ask for this
+   * list three times (the participants payload, the approver queue, a snapshot),
+   * each ask otherwise an O(n log n) sort, and a join or role change broadcasts
+   * it to the whole room. `joinedAt` is fixed when someone joins, so the ordering
+   * only changes where the Map grows or shrinks — that is where the cache drops.
+   *
+   * Treat the returned array as read-only: it is shared between callers.
+   * @returns {Participant[]}
+   */
   listParticipants() {
-    return [...this.participants.values()].sort((a, b) => a.joinedAt - b.joinedAt);
+    if (!this.roster) {
+      this.roster = [...this.participants.values()].sort((a, b) => a.joinedAt - b.joinedAt);
+    }
+    return this.roster;
+  }
+
+  /** Called by every path that adds or removes a participant. */
+  dropRosterCache() {
+    this.roster = null;
   }
 
   /**
@@ -142,6 +158,7 @@ class Room {
       role: isFirstEver ? ROLES.HOST : ROLES.PARTICIPANT,
     });
     this.participants.set(userId, participant);
+    this.dropRosterCache();
     if (participant.isHost) this.hostClaimed = true;
     this.touch();
     return { participant, rejoined: false };
@@ -155,6 +172,7 @@ class Room {
     const participant = this.participants.get(userId);
     if (!participant) return null;
     this.participants.delete(userId);
+    this.dropRosterCache();
 
     // Their unanswered proposals are meaningless now.
     for (const [requestId, request] of this.requests) {
@@ -347,26 +365,34 @@ class Room {
       return { ok: false, error: `"${action}" cannot be requested.` };
     }
 
-    const mine = [...this.requests.values()].filter((r) => r.userId === userId).length;
+    if (this.requests.size >= config.room.maxPendingRequestsPerRoom) {
+      return { ok: false, error: 'This room has too many pending requests right now.' };
+    }
+
+    // One pass over the queue answers two questions at once: how many proposals
+    // this person already has open (back-pressure), and whether they are
+    // re-proposing something already waiting. Re-sending `pause` replaces the
+    // pending one rather than making the host approve the same thing twice.
+    let mine = 0;
+    let already = null;
+    for (const request of this.requests.values()) {
+      if (request.userId !== userId) continue;
+      mine += 1;
+      if (!already && request.action === action) already = request;
+    }
+
     if (mine >= config.room.maxPendingRequestsPerUser) {
       return {
         ok: false,
         error: 'You already have requests waiting for approval. Give the host a moment.',
       };
     }
-    if (this.requests.size >= config.room.maxPendingRequestsPerRoom) {
-      return { ok: false, error: 'This room has too many pending requests right now.' };
-    }
 
-    // One proposal per (user, action) — a second "pause" simply replaces the
-    // first rather than making the host approve the same thing twice.
-    for (const request of this.requests.values()) {
-      if (request.userId === userId && request.action === action) {
-        request.payload = payload;
-        request.note = String(note).slice(0, 140);
-        request.createdAt = Date.now();
-        return { ok: true, request: this.serializeRequest(request), created: false };
-      }
+    if (already) {
+      already.payload = payload;
+      already.note = String(note).slice(0, 140);
+      already.createdAt = Date.now();
+      return { ok: true, request: this.serializeRequest(already), created: false };
     }
 
     const request = {

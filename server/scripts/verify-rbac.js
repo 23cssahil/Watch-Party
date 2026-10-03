@@ -256,6 +256,29 @@ async function main() {
   const badVideo = await host.recorder.waitFor('room_error', 2000).catch(() => null);
   check('invalid video id never reaches the room', Boolean(badVideo));
 
+  // 13. Regression guard for the bug that made a shared link look broken. A join
+  //     for a code that does not exist must ANSWER: the acknowledgement is the
+  //     client's only way to explain "this room is gone", and a silent drop there
+  //     is exactly what reads as "the link doesn't open". Rooms live in memory, so
+  //     every server restart turns old links into this case.
+  const wanderer = connect('Wanderer', 'user-late');
+  const deadAck = await new Promise((resolve) => {
+    wanderer.socket.emit(
+      'join_room',
+      { roomId: 'ZZZZZZ', username: 'Wanderer', userId: 'user-late' },
+      resolve
+    );
+    setTimeout(() => resolve(null), 3000);
+  });
+  check('a join for an unknown code is answered, not dropped', Boolean(deadAck));
+  check(
+    'and it is refused with a reason the UI can show',
+    deadAck?.ok === false && Boolean(deadAck?.error),
+    deadAck?.error
+  );
+  check('the same refusal reaches the sender as room_error', wanderer.recorder.has('room_error'));
+  wanderer.socket.close();
+
   host.socket.close();
   guest.socket.close();
 

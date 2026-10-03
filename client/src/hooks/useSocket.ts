@@ -57,11 +57,19 @@ export function useSocket(): void {
         // Reconnect: rejoin with the *same* userId. The server keys people by
         // userId rather than socket id, which is what lets a Host keep their
         // role across a dropped connection instead of rejoining as a viewer.
-        socket.emit('join_room', {
-          roomId,
-          username: me.username,
-          userId: getIdentity().userId,
-        });
+        //
+        // The acknowledgement matters as much as the emit: a server that restarts
+        // (every deploy, and every wake-up from a free tier's sleep) has lost its
+        // in-memory rooms, so this join is refused and the old code let that
+        // refusal pass as a toast while the page went on showing a stale room.
+        // Recording it as `joinError` makes the screen say what actually happened.
+        socket.emit(
+          'join_room',
+          { roomId, username: me.username, userId: getIdentity().userId },
+          (result) => {
+            if (!result.ok) store.getState().setJoinError(result.error || 'That room no longer exists.');
+          }
+        );
       }
       hasConnectedOnce.current = true;
     };
@@ -71,6 +79,26 @@ export function useSocket(): void {
       if (reason !== 'io client disconnect') {
         store.getState().pushToast('Connection lost — reconnecting…', 'warn');
       }
+    };
+
+    /**
+     * Every reconnection attempt has been used up.
+     *
+     * This is the one state where the page would otherwise sit on "Reconnecting"
+     * forever with nothing left happening, so it is recorded as a join refusal:
+     * that is what swaps the Room page to the screen with a working retry button
+     * (which also restarts the connection, not just the join).
+     *
+     * It lives on the Manager (`socket.io`) rather than the Socket, because
+     * "gave up reconnecting" is a transport-level fact, not a namespace one.
+     */
+    const onReconnectFailed = () => {
+      store.getState().setStatus('disconnected');
+      store.getState().setJoinError(
+        store.getState().roomId
+          ? 'Lost the server and could not get back in.'
+          : 'Could not reach the server. It may still be waking up.'
+      );
     };
 
     const onRoomState = (snapshot: RoomSnapshot) => store.getState().applySnapshot(snapshot);
@@ -199,6 +227,7 @@ export function useSocket(): void {
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
+    socket.io.on('reconnect_failed', onReconnectFailed);
     socket.on('room_state', onRoomState);
     socket.on('sync_state', onSyncState);
     socket.on('user_joined', onUserJoined);
@@ -221,6 +250,7 @@ export function useSocket(): void {
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
+      socket.io.off('reconnect_failed', onReconnectFailed);
       socket.off('room_state', onRoomState);
       socket.off('sync_state', onSyncState);
       socket.off('user_joined', onUserJoined);

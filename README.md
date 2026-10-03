@@ -79,7 +79,7 @@ npm run verify
 ```
 
 This drives **two real Socket.IO clients** against a running server and asserts on the
-events they receive — 30 checks, going through the same wire path a browser uses. It
+events they receive — 33 checks, going through the same wire path a browser uses. It
 covers the adversarial cases rather than the happy path:
 
 - a client that *claims* `role: 'host'` in its join payload still joins as a participant
@@ -87,8 +87,10 @@ covers the adversarial cases rather than the happy path:
 - a Participant's `assign_role` is refused and does **not** silently degrade into a request
 - an approved request is byte-identical downstream to a Host's own action
 - after promotion, that same Participant's `play` executes directly with no request
+- a `join_room` for a code that does not exist is *answered* with a reason, never dropped
+  (this is the acknowledgement the share-link screen depends on)
 
-Expected tail: `30/30 checks passed`.
+Expected tail: `33/33 checks passed`.
 
 ---
 
@@ -111,12 +113,14 @@ error that looks exactly like a network problem.
 | Instance | Free |
 | Health check path | `/health` |
 
-The final `cp` is the part that matters. Render puts only the **Root Directory's** contents
-in the running image, so `client/dist` — a sibling of `server/` — exists while building and
-then vanishes. Copying the bundle to `server/client-dist` brings it inside the directory
-that actually ships. The server checks `server/client-dist` first and falls back to
-`client/dist`, so local `npm start` needs no copy step and the same code runs in both
-layouts.
+The final `cp` is a safety measure, not the fix for the bug this layout originally seemed
+to cause. Render's deploy log showed the app running from `/opt/render/project/src/server`,
+which means the sibling `client/` directory *is* present at runtime — the reason the first
+deploy served JSON at `/` was route precedence, covered in "What the HTTP layer does about
+speed" below. The copy is still worth keeping: `server/client-dist` makes the shipped
+directory self-contained instead of depending on how the build box happens to lay out the
+checkout. The server probes `server/client-dist` first and falls back to `client/dist`, so
+local `npm start` needs no copy step and the same code runs in both layouts.
 
 Environment variables (all optional):
 
@@ -128,11 +132,44 @@ Environment variables (all optional):
 
 > **Live app:** https://watch-party-ay7d.onrender.com
 > · API info at `/api` · status at `/health`
->
-> The free instance sleeps after ~15 min without traffic, so the first visitor waits
-> ~30–50 s. That is a property of the tier, not of the app.
 
-Rooms are lost on a restart unless `MONGODB_URI` is configured — discussed in §8.
+### Why a shared link can look dead — and what the app now does about it
+
+Two honest failure modes, both consequences of one free single-instance tier:
+
+| Cause | What it used to look like | What the viewer gets now |
+| --- | --- | --- |
+| Instance asleep: the first request after ~15 min idle waits ~30–50 s for the boot | a spinner, and then nothing at all once the client's retries ran out | retries with back-off for a couple of minutes; if it genuinely gives up, the room screen says so and its button restarts the connection |
+| Room gone: a restart, redeploy or wake-up wipes the in-memory rooms | a black stage and a toast that expired after 4 s | a screen naming the room code and the server's own reason, with **Try again** and **Start your own room** |
+
+The second is fixed properly rather than cosmetically, in two places. `join_room` has always
+acknowledged `{ ok: false, error }` — the client simply was not reading it, so the refusal
+had nowhere to go; it is now stored as `joinError` and rendered. And setting `MONGODB_URI`
+makes the room survive the restart in the first place: `RoomManager.getOrRestore()` rebuilds
+it from the database on the first join (paused, never auto-resumed into a room of strangers),
+so an old link keeps working. Without a database, rooms are lost on restart — §8.
+
+For a demo, pointing any free uptime checker at `/health` every 5 minutes keeps the instance
+awake and the links instant. That is an operational trick, deliberately not app code: a
+service cannot keep itself alive.
+
+### What the HTTP layer does about speed
+
+Measured on the deployed app, not estimated:
+
+| | before | after |
+| --- | --- | --- |
+| JS bundle over the wire | 237 kB, `Content-Encoding: none`, ~1.75 s | 78 kB, gzip/brotli |
+| `/assets/*` (Vite-fingerprinted) | `max-age=3600` | `max-age=31536000, immutable` |
+| `index.html` | `public, maxAge=0` — a directive no browser understands, so heuristic caching applied | `no-cache`, revalidated with a 304 |
+
+`compression` sits in front of the static handler in `server/src/index.js`. The split in
+cache policy is the part worth defending: a fingerprinted filename can never refer to two
+different files, so a year is safe and makes the second visit to a shared link nearly
+instant; `index.html` is the one file whose *content* changes on every deploy while its
+*name* never does, and caching that is precisely how a successful deploy appears to do
+nothing. Socket.IO is untouched by any of this — it claims its own path on the raw HTTP
+server before Express is consulted, and a WebSocket frame is not an HTTP response.
 
 ---
 
@@ -353,6 +390,21 @@ attempt does not quietly fall back into the request queue.
 **Position lives in local component state.** The player position updates 4×/s; putting it
 in the global store would re-render the roster, chat and controls four times a second for
 no reason.
+
+**The join-ordered roster is memoised, not re-sorted per ask.** One playback event asks for
+the participant list three times — the broadcast payload, the approver queue, a snapshot —
+and a join or role change sends it to the whole room, so a naive implementation sorted the
+same immutable-by-`joinedAt` data three times per event. The cache is dropped only where the
+Map grows or shrinks, which is the only thing that can change that ordering. The same
+reasoning removed the array built for every heartbeat tick: the loop that runs forever is the
+loop worth keeping allocation-free.
+
+**Where the O(1) already was, and where it is not.** Permissions are a constant-time matrix
+lookup, room lookup is a `Map` keyed by code, and every handler resolves its sender through
+`socket.data.userId` → `Map.get`, never a scan of the roster — which is also why the dead
+`findBySocketId()` linear search is gone rather than optimised. What stays O(n) is honest
+fan-out: a broadcast to a room of n people is n frames, and `getHost()`'s scan of a
+≤50-seat roster is not worth another piece of state to keep in sync.
 
 ---
 

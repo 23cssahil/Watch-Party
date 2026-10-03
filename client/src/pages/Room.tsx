@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { joinRoom, leaveRoom } from '../actions';
 import { getIdentity } from '../socket';
@@ -7,6 +7,7 @@ import VideoStage from '../components/VideoStage';
 import SidePanel from '../components/SidePanel';
 import ReactionLayer from '../components/ReactionLayer';
 import RemovedScreen from '../components/RemovedScreen';
+import RoomUnavailable from '../components/RoomUnavailable';
 
 /**
  * The room screen.
@@ -16,15 +17,25 @@ import RemovedScreen from '../components/RemovedScreen';
  * arrive here, so the join is driven by "the URL says a room, the store is not
  * in it" rather than by a click handler. That keeps deep links working without
  * any of the three entry paths having to know about the others.
+ *
+ * The join's acknowledgement is consumed, not ignored. A refused join used to
+ * arrive as a toast over a black stage, which reads as a broken page; now the
+ * refusal is stored and this page swaps to `RoomUnavailable`, which says what
+ * happened and offers a retry.
  */
 export default function Room() {
   const { code = '' } = useParams<{ code: string }>();
-  const identity = useMemo(() => getIdentity(), []);
+  // Held in state rather than memoised, so that saving a name is visible to the
+  // join effect on the next render. A first-time visitor on a dead link would
+  // otherwise be bounced back to the name gate after pressing retry and asked to
+  // introduce themselves again.
+  const [identity, setIdentity] = useState(() => getIdentity());
 
   const roomId = useRoomStore((state) => state.roomId);
   const me = useRoomStore((state) => state.me);
   const status = useRoomStore((state) => state.status);
   const removed = useRoomStore((state) => state.removed);
+  const joinError = useRoomStore((state) => state.joinError);
   const participants = useRoomStore((state) => state.participants);
   const transport = useRoomStore((state) => state.transport);
 
@@ -34,11 +45,16 @@ export default function Room() {
   const wantsToJoin = code.trim().toUpperCase();
 
   useEffect(() => {
-    if (status !== 'connected' || removed) return;
+    // `joinError` is in the dependency list on purpose: it both stops the retry
+    // loop (a refused join must not be re-sent on every render) and restarts it,
+    // because clearing it is exactly what the retry button does.
+    if (status !== 'connected' || removed || joinError) return;
     if (roomId === wantsToJoin && me) return;
     if (!identity.username) return; // waiting for the name gate below
-    joinRoom(wantsToJoin, identity.username);
-  }, [status, roomId, me, wantsToJoin, identity.username, removed]);
+    joinRoom(wantsToJoin, identity.username, (result) => {
+      if (!result.ok) useRoomStore.getState().setJoinError(result.error || 'Could not join that room.');
+    });
+  }, [status, roomId, me, wantsToJoin, identity.username, removed, joinError]);
 
   // A share link opened on a phone should not show a blank black rectangle.
   useEffect(() => {
@@ -49,12 +65,16 @@ export default function Room() {
   const submitName = () => {
     const trimmed = name.trim();
     if (trimmed.length < 2) return;
-    localStorage.setItem('watch-party:identity', JSON.stringify({ ...identity, username: trimmed }));
-    setName(trimmed);
-    joinRoom(wantsToJoin, trimmed);
+    const next = { ...identity, username: trimmed };
+    localStorage.setItem('watch-party:identity', JSON.stringify(next));
+    setIdentity(next);
+    // Setting the identity above re-runs the join effect, which is the same emit
+    // — so this path sends `join_room` once, from the effect, not twice.
   };
 
   if (removed) return <RemovedScreen removed={removed} />;
+
+  if (joinError) return <RoomUnavailable code={wantsToJoin} error={joinError} />;
 
   if (!identity.username) {
     return (

@@ -24,7 +24,11 @@ export const socket: Socket<ServerEvents, ClientEvents> = io(target, {
   // corporate network blocks the upgrade. Socket.IO will upgrade again later.
   transports: ['websocket', 'polling'],
   reconnection: true,
-  reconnectionAttempts: 12,
+  // Long enough to outlast a free-tier cold start. A sleeping instance takes
+  // 30-50 s to answer the first request, and a client that gives up after a
+  // dozen tries turns "wait a moment" into a page that never recovers. With the
+  // back-off below this keeps trying for a few minutes without hammering.
+  reconnectionAttempts: 40,
   // Randomised back-off, so 100 clients whose server restarted do not all
   // reconnect on the same tick and knock it over again.
   reconnectionDelay: 800,

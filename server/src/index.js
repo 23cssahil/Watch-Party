@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const { Server } = require('socket.io');
 
 const config = require('./config');
@@ -50,11 +51,12 @@ handler.register(io);
  * has to know whether the SPA is going to own `/`.
  *
  * Two candidates, in this order:
- *   - `server/client-dist` — the deployment layout. Render's Root Directory is
- *     `server` and only that directory's contents reach the running image, so
- *     the build step copies the bundle in here. The sibling `client/` folder
- *     exists while building and is gone by the time the process starts, which is
- *     exactly the trap this avoids.
+ *   - `server/client-dist` — what the build step copies in (see the Build
+ *     command in the README). Preferred because it makes the directory that
+ *     ships self-contained, rather than depending on how the build host lays out
+ *     the checkout: Render's log shows the app running from
+ *     `/opt/render/project/src/server`, so the sibling `client/dist` does exist
+ *     there, but "it should exist" is not something a boot path should rely on.
  *   - `client/dist` — the local monorepo layout, so `npm start` works here with
  *     no copy step.
  */
@@ -69,6 +71,19 @@ const clientDist = CLIENT_BUNDLE_CANDIDATES.find((dir) =>
 
 // ------------------------------------------------------------------ HTTP API
 
+/**
+ * gzip/brotli for everything text-shaped.
+ *
+ * This is not a micro-optimisation: the measured production bundle is 237 kB and
+ * was going over the wire whole, taking ~1.75 s on a cold connection. Compressed
+ * it is ~78 kB. On the free tier's single CPU that trade (a few ms of deflate for
+ * three fewer seconds of user waiting) is overwhelmingly worth it, and Render
+ * does not do it for us — the deploy log shows nothing adding `Content-Encoding`.
+ *
+ * Socket.IO is unaffected: it takes over its own path on the raw http.Server
+ * before Express is ever consulted, and a WebSocket frame is not an HTTP response.
+ */
+app.use(compression({ level: 6 }));
 app.use(cors({ origin: config.clientOrigins }));
 app.use(express.json({ limit: '16kb' }));
 
@@ -83,8 +98,13 @@ app.get('/health', (_req, res) => {
 });
 
 /**
- * Share-link preflight. The client calls this before opening a socket so a typo
- * in a room code shows "no such room" instantly instead of a connection error.
+ * Share-link preflight: read-only inspection of one room code.
+ *
+ * Not used by the app itself — the client learns whether a join worked from the
+ * `join_room` acknowledgement, and keeping that the single source of truth means
+ * there is no second, disagreeable answer to "does this room exist?". This route
+ * exists so a dead share link can be diagnosed with one curl instead of by
+ * reading server logs.
  */
 app.get('/api/rooms/:code', (req, res) => {
   const code = normalizeRoomCode(req.params.code);
@@ -127,15 +147,43 @@ if (!clientDist) app.get('/', serviceInfo);
  * the raw HTTP server before Express is consulted.
  */
 if (clientDist) {
+  const assetsDir = path.join(clientDist, 'assets');
+
+  /**
+   * Cache policy, in two halves — and the split is the point.
+   *
+   * Vite fingerprints every filename under `/assets`, so a name can never point
+   * at two different files over time: a year in the browser cache is safe, and it
+   * is what makes the *second* visit to a shared link essentially instant.
+   *
+   * The HTML shell is the opposite: it is the one file whose name never changes
+   * and whose content changes on every deploy. Caching it is how a deploy appears
+   * to do nothing, because the old shell keeps asking for bundle names that no
+   * longer exist. `no-cache` (revalidate, and `express.static` answers with a
+   * cheap 304) is the correct setting, not `no-store`.
+   */
+  const cacheFor = (file) =>
+    path.dirname(file) === assetsDir
+      ? 'public, max-age=31536000, immutable'
+      : 'no-cache';
+
   // `index: false` so the shell is always handed out by the catch-all below and
   // a stale cached copy of it cannot pin clients to an old bundle.
-  app.use(express.static(clientDist, { index: false, maxAge: '1h' }));
+  app.use(
+    express.static(clientDist, {
+      index: false,
+      setHeaders: (res, file) => res.setHeader('Cache-Control', cacheFor(file)),
+    })
+  );
 
   app.get('*', (req, res, next) => {
     if (req.path === '/health' || req.path.startsWith('/api/') || req.path.startsWith('/socket.io')) {
       return next();
     }
-    res.sendFile(path.join(clientDist, 'index.html'));
+    // `cacheControl: false` stops `send` from writing its own Cache-Control over
+    // the one set here.
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(clientDist, 'index.html'), { cacheControl: false });
   });
 }
 

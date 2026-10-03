@@ -107,16 +107,16 @@ class RoomManager {
     this.rooms.delete(normalizeRoomCode(code));
   }
 
-  /** @returns {Room[]} */
-  get active() {
-    return [...this.rooms.values()].filter((room) => room.size > 0);
-  }
-
   /**
    * Periodic state push + request expiry.
+   *
+   * Walks the Map directly rather than through an intermediate list of "active"
+   * rooms: this is the one loop that runs forever, so building a fresh array on
+   * every beat would be garbage generated purely to be thrown away.
    */
   tick() {
-    for (const room of this.active) {
+    for (const room of this.rooms.values()) {
+      if (room.size === 0) continue; // an empty room has no one to tell
       for (const expired of room.expireStaleRequests()) {
         this.io.to(room.id).emit('request_expired', { request: expired });
       }
@@ -145,16 +145,21 @@ class RoomManager {
     clearInterval(this.sweeper);
   }
 
-  /** Exposed for the read-only /metrics endpoint. */
+  /** Exposed for the read-only /health endpoint. One pass, four numbers. */
   stats() {
+    let activeRooms = 0;
+    let participants = 0;
+    let pendingRequests = 0;
+    for (const room of this.rooms.values()) {
+      if (room.size > 0) activeRooms += 1;
+      participants += room.size;
+      pendingRequests += room.requests.size;
+    }
     return {
       rooms: this.rooms.size,
-      activeRooms: this.active.length,
-      participants: [...this.rooms.values()].reduce((sum, room) => sum + room.size, 0),
-      pendingRequests: [...this.rooms.values()].reduce(
-        (sum, room) => sum + room.requests.size,
-        0,
-      ),
+      activeRooms,
+      participants,
+      pendingRequests,
     };
   }
 }
