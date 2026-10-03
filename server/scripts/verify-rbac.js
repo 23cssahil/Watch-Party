@@ -279,6 +279,53 @@ async function main() {
   check('the same refusal reaches the sender as room_error', wanderer.recorder.has('room_error'));
   wanderer.socket.close();
 
+  // 14. Regression guard for the refresh that used to cost the Host their room.
+  //     Closing a socket is exactly what a page reload does. With nobody else
+  //     present there was no one to inherit the role, yet the room still recorded
+  //     that a Host had been minted, so the returning owner joined as a plain
+  //     Participant in a room nothing could be decided in — no playback control
+  //     and no approver for the request queue, permanently.
+  const soloRoom = roomId;
+  host.socket.close();
+  await wait(500); // let the server process the departure
+  const returned = connect('Hostie', 'user-host');
+  returned.socket.emit('join_room', { roomId: soloRoom, username: 'Hostie', userId: 'user-host' });
+  const returnedState = (await returned.recorder.waitFor('room_state')).payload;
+  check(
+    'a Host reloading an otherwise-empty room comes back as its Host',
+    returnedState.me.role === 'host',
+    returnedState.me.role
+  );
+  check(
+    'and the room has exactly one host after the return',
+    (returnedState.participants || []).filter((p) => p.role === 'host').length === 1
+  );
+  check(
+    'so playback authority is intact without anyone re-assigning it',
+    returnedState.me.capabilities.allowedActions.includes('play')
+  );
+  returned.socket.close();
+
+  // 15. Regression guard for the ghost seat. A socket that abandons its room for
+  //     another one used to be unbound from the old channel while staying a
+  //     Participant inside it — an inflated roster, a room that never read as
+  //     empty, and a Host who had left but still owned the room. Reachable by
+  //     pressing the logo and starting a new party.
+  const drifter = connect('Drifter', 'user-drifter');
+  drifter.socket.emit('create_room', { username: 'Drifter', userId: 'user-drifter' });
+  const firstRoom = (await drifter.recorder.waitFor('room_state')).payload.roomId;
+  drifter.recorder.received.length = 0;
+  drifter.socket.emit('create_room', { username: 'Drifter', userId: 'user-drifter' });
+  const secondRoom = (await drifter.recorder.waitFor('room_state')).payload.roomId;
+  check('starting a second room really moves the socket', secondRoom !== firstRoom, `${firstRoom} -> ${secondRoom}`);
+  const leftBehind = await fetch(`${URL}/api/rooms/${firstRoom}`)
+    .then((response) => response.json())
+    .catch(() => null);
+  check('and the room that was left behind holds no ghost', leftBehind?.room?.participants === 0,
+    `participants: ${leftBehind?.room?.participants}`);
+  check('that room is still reported live, just empty', leftBehind?.room?.live === true);
+  drifter.socket.close();
+
   host.socket.close();
   guest.socket.close();
 

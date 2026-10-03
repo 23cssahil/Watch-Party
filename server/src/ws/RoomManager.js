@@ -70,6 +70,14 @@ class RoomManager {
   /**
    * Look for a live room, and if the server has restarted, try to rebuild its
    * durable metadata from the database so an old share link still works.
+   *
+   * Restored: what was playing, how far it had got, how long it is, the room's
+   * age, and whose room it was. Not restored: the roster or anybody's live
+   * connection. Authority is still minted by arrival, never taken from a client
+   * payload — `hostUserId` only tells the room who *owned* it, so that the person
+   * who shared a link gets their own party back as its Host instead of walking in
+   * as a stranger who cannot control it. If somebody else reaches the room first,
+   * they run it, and that is the end of the story until the Host transfers.
    * @param {string} rawCode
    * @returns {Promise<Room|undefined>}
    */
@@ -85,12 +93,37 @@ class RoomManager {
 
     const room = new Room({ id: code, io: this.io, videoId: saved.videoId });
     room.state.currentTime = Number(saved.currentTime) || 0;
+    // Without the duration a restored room cannot clamp a seek, so the first
+    // person back in could scrub past the end of the video.
+    room.state.duration = Number(saved.duration) || 0;
+    room.videoTitle = typeof saved.title === 'string' ? saved.title : '';
+    room.peakSize = Number(saved.peakParticipants) || 0;
+    // Ownership, not authority. See the note on `Room.hostUserId`.
+    room.hostUserId = typeof saved.hostUserId === 'string' ? saved.hostUserId : '';
+    if (room.hostUserId) room.hostClaimed = true;
     room.state.isPlaying = false; // never auto-resume into a room of strangers
     room.state.updatedAt = Date.now();
     room.createdAt = saved.createdAt ? new Date(saved.createdAt).getTime() : Date.now();
     room.onStateChange = (dirty) => this.persist(dirty);
     this.rooms.set(code, room);
+    console.log(`[RoomManager] restored ${code} from ${this.persistence.label} (seek to ${Math.round(room.state.currentTime)}s)`);
     return room;
+  }
+
+  /**
+   * Read-only database lookup for the HTTP preview route.
+   *
+   * Separate from `getOrRestore` on purpose: inspecting a code from a browser
+   * address bar must not materialise a room, start its timers or hand anybody
+   * the host role. This returns what was stored, or nothing.
+   * @param {string} rawCode
+   * @returns {Promise<object|null>}
+   */
+  async peekSaved(rawCode) {
+    const code = normalizeRoomCode(rawCode);
+    if (!code) return null;
+    if (typeof this.persistence.load !== 'function') return null;
+    return (await this.persistence.load(code)) || null;
   }
 
   /** @param {Room} room */

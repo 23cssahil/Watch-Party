@@ -69,6 +69,12 @@ export function useYouTubeSync(
   const apiRef = useRef<YouTubeApi | null>(null);
   const suppressUntilRef = useRef(0);
   const loadedVideoRef = useRef<string | null>(null);
+  /**
+   * False until the room has actually named a video. Kept as the guard on the
+   * error path: an error raised before there is anything to play is about our
+   * placeholder, never about the room, and must not be shown as one.
+   */
+  const hadVideoRef = useRef(false);
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,9 +82,24 @@ export function useYouTubeSync(
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
+  /** Title as the player itself reports it — metadata for the room, never a control. */
+  const [videoTitle, setVideoTitle] = useState('');
 
   const sync = useRoomStore((state) => state.sync);
   const roomId = useRoomStore((state) => state.roomId); // presence gate only
+
+  /**
+   * Whether the room has named a video yet.
+   *
+   * The player is not constructed before it has. An IFrame API instance created
+   * with no `videoId` produces an iframe with no `src` at all, and from that point
+   * `onReady` is the only thing our whole sync layer waits for — so on a full page
+   * load of `/room/CODE`, where the room state arrives *after* the component
+   * mounted, the player sat dead: no video, an error overlay, and a "Re-sync me"
+   * button that could not help because nothing was ever cued. A client-side join
+   * from Home worked, which is exactly why a refresh looked like a different app.
+   */
+  const hasVideo = Boolean(sync?.videoId);
 
   const [volume, setVolumeState] = useState(() => {
     const stored = Number(localStorage.getItem('watch-party:volume'));
@@ -90,19 +111,39 @@ export function useYouTubeSync(
 
   useEffect(() => {
     const element = containerRef.current;
-    if (!element) return;
+    if (!element || !hasVideo) return;
 
     let cancelled = false;
     const initialVideo = useRoomStore.getState().sync?.videoId;
+    if (!initialVideo) return;
 
     loadYouTubeApi()
       .then((api) => {
         if (cancelled) return;
         apiRef.current = api;
+        hadVideoRef.current = true;
+
+        /**
+         * Read the title off the player rather than tracking it next to the
+         * `loadVideoById` calls, so it always describes what is actually loaded
+         * and cannot go stale when the host switches video mid-room.
+         */
+        const readTitle = () => {
+          const data = playerRef.current?.getVideoData?.();
+          if (data?.title) setVideoTitle(data.title);
+        };
 
         playerRef.current = new api.Player(element, {
           videoId: initialVideo,
-          host: 'https://www.youtube-nocookie.com',
+          // Deliberately no `host` override.
+          //
+          // Declaring youtube-nocookie.com here while the API script is loaded
+          // from www.youtube.com leaves www-widgetapi posting messages whose
+          // target origin disagrees with the frame it is talking to, and Chrome
+          // fills the console with "Failed to execute 'postMessage' on 'DOMWindow'".
+          // The nocookie domain's privacy edge is not worth a red console on every
+          // load; `origin` below is the parameter that actually authorises the
+          // embed, and that one stays.
           playerVars: {
             // Our own control bar is the source of truth, so YouTube's chrome is
             // removed. Leaving it in would let a viewer scrub or pause through a
@@ -122,6 +163,7 @@ export function useYouTubeSync(
               if (cancelled) return;
               playerRef.current?.setVolume(volume);
               if (muted) playerRef.current?.mute();
+              readTitle();
               setReady(true);
             },
             onStateChange: (event) => {
@@ -130,12 +172,23 @@ export function useYouTubeSync(
               const isPlaying = event.data === api.PlayerState.PLAYING;
               setPlaying(isPlaying);
               if (isPlaying) setNeedsGesture(false);
+              // The player produced a frame, so whatever error was on screen was
+              // about a state we have already left. Errors never linger here.
+              setError(null);
 
               const nextDuration = playerRef.current.getDuration?.() || 0;
               if (nextDuration > 0) setDuration(nextDuration);
+              // A state change is also the moment a newly loaded video becomes
+              // queryable, so the title cannot lag the video by a whole action.
+              readTitle();
             },
             onError: (event) => {
-              setError(describeYouTubeError(Number(event.data)));
+              const message = describeYouTubeError(Number(event.data));
+              if (!hadVideoRef.current && !useRoomStore.getState().sync) {
+                console.warn('[watch-party] player created before the room state arrived:', message);
+                return;
+              }
+              setError(message);
             },
           },
         });
@@ -150,15 +203,26 @@ export function useYouTubeSync(
       playerRef.current = null;
       loadedVideoRef.current = null;
     };
-    // Mount-once: the player is imperative and must not be rebuilt on re-render.
+    // `hasVideo` flips exactly once in a room's life (never → named), which is the
+    // point at which there is something to build a player around. Mount-once for
+    // every other reason: the player is imperative and must not be rebuilt on
+    // re-render, and a later video *change* is handled by `cueVideoById`, not by
+    // tearing the iframe down.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [containerRef]);
+  }, [containerRef, hasVideo]);
 
   // --------------------------------------------------------------- apply sync
 
   const applySync = useCallback((next: SyncState) => {
     const player = playerRef.current;
     if (!player) return;
+
+    if (next.videoId) {
+      hadVideoRef.current = true;
+      // A video is now genuinely in play, so any error still on the screen is
+      // history — including the placeholder error described on `hadVideoRef`.
+      setError(null);
+    }
 
     // Anything the player reports for the next moment is our doing.
     suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
@@ -191,6 +255,31 @@ export function useYouTubeSync(
     applySync(sync);
   }, [ready, sync, applySync]);
 
+  /**
+   * Coming back to a tab that was in the background.
+   *
+   * Two things happen to a hidden tab, neither of them chosen by anybody: the
+   * browser throttles its timers (our drift loop can then run once a minute
+   * instead of twice a second), and YouTube's player often pauses itself because
+   * it can see the page is not visible. The room keeps running for everyone else,
+   * which is correct — a host blinking at another tab is not an instruction to
+   * pause a party. What was missing is the *host's own* screen: it sat paused and
+   * then drifted, looking like the room had ignored the host.
+   *
+   * So on return we re-apply the authoritative state immediately rather than
+   * waiting up to a heartbeat for the next one. A local pause caused by the
+   * browser is never broadcast as a room pause, and never left to rot either.
+   */
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible' || !ready) return;
+      const current = useRoomStore.getState().sync;
+      if (current) applySync(current);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [ready, applySync]);
+
   // ----------------------------------------------------- drift + UI tick loop
 
   useEffect(() => {
@@ -200,6 +289,12 @@ export function useYouTubeSync(
       const player = playerRef.current;
       const store = useRoomStore.getState();
       if (!player || !store.sync?.isPlaying) return;
+
+      // Nothing is watching a hidden tab, its timers are throttled anyway, and a
+      // seek issued to a player the browser has paused is how a background tab
+      // ends up stuttering. The `visibilitychange` handler does the real repair
+      // when the tab comes back, in one deliberate step.
+      if (document.visibilityState === 'hidden') return;
 
       // A seek is still settling (or the video is buffering). Correcting during
       // that window is what makes badly-written sync code stutter, because the
@@ -243,11 +338,16 @@ export function useYouTubeSync(
     if (!player || !apiRef.current) return;
 
     const timer = window.setTimeout(() => {
-      const state = player.getPlayerState?.();
-      const api = apiRef.current!;
-      const alive =
-        state === api.PlayerState.PLAYING || state === api.PlayerState.BUFFERING;
-      if (!alive) setNeedsGesture(true);
+      // A paused player in a hidden tab is the browser being efficient, not a
+      // missing gesture. Raising the overlay for it would park a "Tap to join the
+      // party" button over a party that is already joined.
+      if (document.visibilityState !== 'hidden') {
+        const state = player.getPlayerState?.();
+        const api = apiRef.current!;
+        const alive =
+          state === api.PlayerState.PLAYING || state === api.PlayerState.BUFFERING;
+        if (!alive) setNeedsGesture(true);
+      }
     }, 900);
 
     return () => clearTimeout(timer);
@@ -257,8 +357,12 @@ export function useYouTubeSync(
 
   useEffect(() => {
     if (!ready || !roomId || duration <= 0) return;
-    socket.emit('report_duration', { duration });
-  }, [ready, roomId, duration, sync?.videoId]);
+    // The title rides along with the duration because both are facts about the
+    // video the server cannot observe by itself, and `sync?.videoId` is a
+    // dependency so a new video is reported even when its duration happens to
+    // match the old one.
+    socket.emit('report_duration', { duration, title: videoTitle });
+  }, [ready, roomId, duration, videoTitle, sync?.videoId]);
 
   // ------------------------------------------------------------------ controls
 

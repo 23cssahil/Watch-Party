@@ -105,12 +105,23 @@ app.get('/health', (_req, res) => {
  * there is no second, disagreeable answer to "does this room exist?". This route
  * exists so a dead share link can be diagnosed with one curl instead of by
  * reading server logs.
+ *
+ * With `MONGODB_URI` set it can also say *why* a code is dead: `live: true` with
+ * a participant count, or `live: false` plus what the database still remembers
+ * about the party that used to be there.
  */
-app.get('/api/rooms/:code', (req, res) => {
+app.get('/api/rooms/:code', async (req, res) => {
   const code = normalizeRoomCode(req.params.code);
-  const preview = code ? handler.peek(code) : null;
-  if (!preview) return res.status(404).json({ ok: false, error: 'Room not found or closed.' });
-  res.json({ ok: true, room: preview });
+  try {
+    const preview = code ? await handler.peek(code) : null;
+    if (!preview) return res.status(404).json({ ok: false, error: 'Room not found or closed.' });
+    res.json({ ok: true, room: preview });
+  } catch (error) {
+    // Express 4 does not catch a rejected async handler, and an unhandled
+    // rejection here would hang the request instead of answering it.
+    console.warn('[http] room preview failed:', error.message);
+    res.status(500).json({ ok: false, error: 'Room lookup failed.' });
+  }
 });
 
 /**

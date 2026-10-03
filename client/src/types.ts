@@ -220,7 +220,12 @@ export interface ClientEvents {
   }) => void;
   resolve_request: (payload: { requestId: string; approved: boolean }) => void;
   sync_request: () => void;
-  report_duration: (payload: { duration: number }) => void;
+  /**
+   * Facts about the video this client's player loaded. The duration lets the
+   * server clamp seeks; the title is a label for the durable record and the
+   * share-link preview. Neither grants any control.
+   */
+  report_duration: (payload: { duration: number; title?: string }) => void;
   chat_message: (payload: { text: string }) => void;
   reaction: (payload: { emoji: string }) => void;
 }

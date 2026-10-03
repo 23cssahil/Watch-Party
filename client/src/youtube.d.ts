@@ -58,6 +58,8 @@ declare namespace YT {
     getPlayerState(): number | undefined;
     getCurrentTime(): number;
     getDuration(): number;
+    /** Metadata for whatever is loaded now, so a title cannot describe the wrong video. */
+    getVideoData(): { video_id?: string; title?: string; author?: string };
     setVolume(volume: number): void;
     mute(): void;
     unMute(): void;

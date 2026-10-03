@@ -26,14 +26,25 @@ export const socket: Socket<ServerEvents, ClientEvents> = io(target, {
   reconnection: true,
   // Long enough to outlast a free-tier cold start. A sleeping instance takes
   // 30-50 s to answer the first request, and a client that gives up after a
-  // dozen tries turns "wait a moment" into a page that never recovers. With the
-  // back-off below this keeps trying for a few minutes without hammering.
-  reconnectionAttempts: 40,
-  // Randomised back-off, so 100 clients whose server restarted do not all
-  // reconnect on the same tick and knock it over again.
-  reconnectionDelay: 800,
-  reconnectionDelayMax: 6000,
-  timeout: 12000,
+  // dozen tries turns "wait a moment" into a page that never recovers. The count
+  // stays finite on purpose: Socket.IO only fires `reconnect_failed` when it hits
+  // the ceiling, and that event is what lets the UI tell the truth instead of
+  // spinning forever. At this back-off, 150 attempts cover roughly ten minutes.
+  reconnectionAttempts: 150,
+  // ---------------------------------------------------------------------------
+  // These three numbers are the whole difference between "room created instantly"
+  // and the 7-10 second wait that was reported. A sleeping instance answers its
+  // first request with a *slow* one, and every retry cycle used to cost up to
+  // `timeout` (12 s) of waiting plus up to `reconnectionDelayMax` (6 s) of back-off
+  // — so the client could sit out a window long after the server was already up.
+  // Attempts are now cheap and frequent: give an unanswered try 4 s, wait at most
+  // 1.2 s, and reconnect within about a second of the instance becoming ready.
+  // The trade is a few more failed requests during a cold start, which one free
+  // instance does not notice.
+  reconnectionDelay: 400,
+  reconnectionDelayMax: 1200,
+  randomizationFactor: 0.3,
+  timeout: 4000,
 });
 
 const IDENTITY_KEY = 'watch-party:identity';

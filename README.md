@@ -45,7 +45,7 @@ approval the change executes and is attributed to the original requester.
 | **Participant must request approval for changes** | `needsApproval()` → request queue |
 | Chat | `chat_message` |
 | Emoji reactions | `reaction` |
-| Persistent rooms | `server/src/models/Room.js` (Mongoose) + in-memory fallback |
+| **Database (MongoDB + Mongoose)** | `watch_party.rooms` — one document per party, `models/Room.js` + `db/mongo.js`, with an in-memory fallback when `MONGODB_URI` is unset (§8) |
 | OOP design (`Room`, `Participant`, `MessageHandler`) | `server/src/ws/` |
 
 ---
@@ -79,7 +79,7 @@ npm run verify
 ```
 
 This drives **two real Socket.IO clients** against a running server and asserts on the
-events they receive — 33 checks, going through the same wire path a browser uses. It
+events they receive — 39 checks, going through the same wire path a browser uses. It
 covers the adversarial cases rather than the happy path:
 
 - a client that *claims* `role: 'host'` in its join payload still joins as a participant
@@ -90,7 +90,25 @@ covers the adversarial cases rather than the happy path:
 - a `join_room` for a code that does not exist is *answered* with a reason, never dropped
   (this is the acknowledgement the share-link screen depends on)
 
-Expected tail: `33/33 checks passed`.
+Expected tail: `39/39 checks passed`.
+
+If you set `MONGODB_URI`, there is a second suite for the database itself:
+
+```bash
+cd server
+npm run verify:db
+```
+
+It does the thing `npm run verify` cannot: after driving a real socket, it reads the
+MongoDB document back and asserts that the debounced write actually landed with the right
+fields — code, video id shape, duration, host id, peak headcount, timestamps — plus that the
+title arrived sanitised. Asserting on the document rather than on a function's return value
+is the only way to catch a background write that quietly never happened. It deletes the row
+it created (`npm run verify` is not so surgical: against a database-enabled server it leaves
+a test row or two behind, which the TTL ages out after 7 days), and exits 0 with a note when
+no database is configured.
+
+Expected tail: `16 persistence checks passed`.
 
 ---
 
@@ -126,7 +144,7 @@ Environment variables (all optional):
 
 | Name | Purpose |
 | --- | --- |
-| `MONGODB_URI` | omit entirely → rooms live in memory, app fully functional |
+| `MONGODB_URI` | set on the deployed service → rooms are restored after a restart or redeploy (`watch_party.rooms`). Unset → in-memory only, and the app is still fully functional |
 | `CLIENT_ORIGIN` | only needed if you split the frontend onto Vercel/Netlify instead |
 | `PORT` | set by Render (default 4000 locally) |
 
@@ -135,19 +153,24 @@ Environment variables (all optional):
 
 ### Why a shared link can look dead — and what the app now does about it
 
-Two honest failure modes, both consequences of one free single-instance tier:
+Three honest failure modes, the first two consequences of one free single-instance tier:
 
 | Cause | What it used to look like | What the viewer gets now |
 | --- | --- | --- |
 | Instance asleep: the first request after ~15 min idle waits ~30–50 s for the boot | a spinner, and then nothing at all once the client's retries ran out | retries with back-off for a couple of minutes; if it genuinely gives up, the room screen says so and its button restarts the connection |
-| Room gone: a restart, redeploy or wake-up wipes the in-memory rooms | a black stage and a toast that expired after 4 s | a screen naming the room code and the server's own reason, with **Try again** and **Start your own room** |
+| Room gone: a restart, redeploy or wake-up used to wipe the in-memory rooms | a black stage and a toast that expired after 4 s | a screen naming the room code and the server's own reason, with **Try again** and **Start your own room**; and with the database configured the room is restored rather than lost |
+| A click while the socket was not ready — display name still empty, or the connection not up yet | **nothing at all**. The handler returned early without a message, so a correct room code typed too early looked like a dead button | every refusal states its own reason; and a click that lands while a retry is in flight is **queued and replayed by itself** the moment the connection opens, so the wait is paid once instead of once per attempt |
+| A reload of the room URL, on the phone that is watching | an error overlay ("invalid video id") over a video that was fine, and a Host who came back as a Viewer with no controls | the player is only built once the room has named a video (§7.6), and the room remembers its owner (§5) |
 
-The second is fixed properly rather than cosmetically, in two places. `join_room` has always
+The first two are fixed properly rather than cosmetically, in two places. `join_room` has always
 acknowledged `{ ok: false, error }` — the client simply was not reading it, so the refusal
-had nowhere to go; it is now stored as `joinError` and rendered. And setting `MONGODB_URI`
-makes the room survive the restart in the first place: `RoomManager.getOrRestore()` rebuilds
-it from the database on the first join (paused, never auto-resumed into a room of strangers),
-so an old link keeps working. Without a database, rooms are lost on restart — §8.
+had nowhere to go; it is now stored as `joinError` and rendered. And because `MONGODB_URI`
+is set on the deployed service, `RoomManager.getOrRestore()` rebuilds the room from the
+`watch_party.rooms` document on the first join after a restart (paused, never auto-resumed
+into a room of strangers), so a link shared an hour ago still opens the same video at the
+same position. What a restart does still lose is the people: the roster, the roles and the
+chat are live socket state and are deliberately not persisted — §8 explains why storing
+them would only create lies to reload later.
 
 For a demo, pointing any free uptime checker at `/health` every 5 minutes keeps the instance
 awake and the links instant. That is an operational trick, deliberately not app code: a
@@ -171,6 +194,32 @@ instant; `index.html` is the one file whose *content* changes on every deploy wh
 nothing. Socket.IO is untouched by any of this — it claims its own path on the raw HTTP
 server before Express is consulted, and a WebSocket frame is not an HTTP response.
 
+### What the client does about speed
+
+"Room creation takes 7-10 seconds" was measured, not guessed. A socket-level probe
+against the deployed service timed the two parts separately:
+
+| | localhost | deployed (warm instance) |
+| --- | --- | --- |
+| socket `connect` | 206 ms | 1 648 ms |
+| `create_room` → acknowledgement | **8 ms** | **337 ms** |
+
+The server makes a room in single-digit milliseconds, so the wait was never in the
+room logic. It was in the client's own patience, and two numbers in `socket.ts` were
+responsible: `timeout: 12000` (one unanswered attempt could eat twelve seconds) and
+`reconnectionDelayMax: 6000` (up to another six seconds of back-off *after* the
+sleeping instance had already finished booting). They are now `4000 / 400 / 1200 ms`:
+attempts are cheap and frequent, so the browser notices the server is back within
+about a second instead of up to eighteen. The trade is a handful of extra failed
+requests during a cold start, which one free instance does not notice. The attempt
+ceiling stayed finite on purpose — `reconnect_failed` only fires when it is reached,
+and that event is what lets the UI tell the truth instead of spinning forever.
+
+What no client code can do is shorten a boot, so the second half of the fix is to stop
+wasting the user's click during one: the Home screen keeps the pressed action and replays
+it on connect, with the button saying "Waiting for the server…" rather than showing a
+spinner that is not attached to anything.
+
 ---
 
 ## 4. Architecture
@@ -187,10 +236,12 @@ Browser A (Host)          Browser B (Participant)       Browser C (Moderator)
 │    └─ Room               authoritative state + the only mutation     │
 │                          funnel (`applyPlayback`)                    │
 └───────────────┬──────────────────────────────────────────────────────┘
-                │  optional, debounced
+                │  optional, debounced 2 s per room
                 ▼
-         MongoDB Atlas      room document + participants
-                            (no-op when MONGODB_URI is unset)
+         MongoDB Atlas      one document per room: code, video id + title,
+                            position, duration, host label, peak headcount
+                            (no-op when MONGODB_URI is unset;
+                             live socket state is never stored)
 ```
 
 **The core rule: the Room owns the truth, clients own the rendering.**
@@ -252,8 +303,25 @@ words for the same person.
   person into an empty room. It is never read from a client payload.
 - Identity is keyed by a stable `userId` (a uuid in `localStorage`), **not** the socket id.
   Roles therefore survive a refresh, a phone locking, and a reconnect.
-- If the Host disconnects, `promoteSuccessorHost()` hands control to the longest-tenured
-  participant. A room that silently loses its only authority is a room nobody can use.
+- `Room.ensureHost()` is the single rule that keeps a room decidable, called on every
+  arrival and every departure: if the room has a Host it is left alone; otherwise the
+  room's recorded owner (`hostUserId`) is restored; otherwise the longest-tenured
+  participant inherits it. A room that silently loses its only authority is a room
+  nobody can use — no playback control, and nobody left to approve a request.
+- **Ownership outlives the socket**, which is what makes a refresh survivable. The first
+  version of this only promoted a successor *when somebody was left to inherit*, and kept
+  a flag saying a Host had already been minted. So a Host alone in a room who reloaded the
+  page came back as a Participant in a room that could never have a Host again: the role
+  could not be minted (flag set), and there was no one to promote (they were alone). The
+  room was a zombie until its idle sweep removed it. `hostUserId` is what the returning
+  owner is matched against, and it moves with an explicit `transfer_host`, so handing the
+  room over really is handing it over.
+- A departing socket leaves the room *for real*. `enter()` used to unbind the socket from
+  the old room's broadcast channel while leaving its `Participant` in that room's roster —
+  a ghost that inflated the headcount, kept the room from ever reading as empty, and could
+  hold the Host role from a connection that no longer existed. Reachable by pressing the
+  logo and starting a new party; the harness now asserts the abandoned room is empty
+  (`npm run verify`, check 15).
 
 ---
 
@@ -278,7 +346,7 @@ mean a renamed payload field fails a compile rather than surfacing at runtime.
 | `request_approval` | `{ action, payload?, note? }` | explicit "ask the host" path |
 | `resolve_request` | `{ requestId, approved }` | approvers only; `false` dismisses |
 | `sync_request` | – | "I think I'm stuck", returns one snapshot |
-| `report_duration` | `{ duration }` | lets the server clamp seeks |
+| `report_duration` | `{ duration, title? }` | the duration lets the server clamp seeks; the title labels the durable record. Neither grants control, and both are sanitised |
 | `chat_message` / `reaction` | `{ text }` / `{ emoji }` | sanitised, rate-limited |
 
 ### Server → client
@@ -345,6 +413,19 @@ programmatic mutation. Seeking and buffering take time to take effect; without t
 the drift loop sees a stale position and seeks again, and again — visible stutter every
 second on a slow connection.
 
+**A backgrounded tab is a special case of "the browser did it, not the user".** Chrome
+throttles a hidden tab's timers (the drift loop can drop from twice a second to about once
+a minute) and YouTube's player frequently pauses itself when it can see the page is not
+visible. Neither is an instruction to pause a party, so nothing is broadcast — which is the
+behaviour the brief wants: the viewers keep watching while the Host flicks through other
+tabs. What was missing, and looked like the room ignoring its own Host, is the *return*:
+the Host's screen stayed paused and off-position until the next heartbeat happened to
+arrive. So the drift loop now keeps its hands off a hidden tab entirely, and a
+`visibilitychange` handler re-applies the authoritative state the moment the tab is visible
+again — one deliberate correction instead of a throttled trickle. While a tab is genuinely
+hidden, a page cannot force YouTube's iframe to keep rendering; that is browser policy, and
+claiming otherwise in an interview would be a lie.
+
 ### 7.4 Autoplay, honestly
 
 Browsers block unmuted autoplay. A player created in response to a *socket* message is not
@@ -352,14 +433,63 @@ inside a user gesture, so the first `play` can be refused by the browser. Rather
 pretend the video started, the stage shows a "Tap to join the party" overlay and resolves
 the pending state inside that real tap. This is a browser policy, not a bug in the sync.
 
+### 7.5 Console messages, and which of them are actually ours
+
+A synced YouTube player is a cross-origin iframe, so it produces browser noise that reads as
+alarming. Four appeared during development, and the useful skill is separating *my bug* from
+*somebody else's warning*:
+
+| Message | Verdict | What happened |
+| --- | --- | --- |
+| `Failed to execute 'postMessage' on 'DOMWindow': The target origin provided ('https://www.youtube-nocookie.com') does not match the recipient window's origin` | **ours** | The player was constructed with `host: 'https://www.youtube-nocookie.com'` while the IFrame API script itself loads from `www.youtube.com`, so `www-widgetapi` posted messages aimed at an origin the frame was not on. The `host` override is gone from `useYouTubeSync.ts`. `origin` in `playerVars` stays, because that is the parameter that actually authorises the embed — and the nocookie domain's privacy edge is not worth a red console on every load. |
+| `The powerPreference option is currently ignored when calling requestAdapter()` | **not ours** | The player inside YouTube's own iframe asks WebGL for a high-performance GPU, and Chrome on Windows logs that it ignores the hint. Nothing in this app is on that call path (crbug.com/369219127), and a watch party cannot fix a browser warning about a third-party frame. |
+| `Blocked aria-hidden on an element because its descendant retained focus` | **ours, and it was a real bug** | The side panel is a slide-over: *closed* means `translateX(100%)`, not unmounted, so its buttons stayed in the tab order while `aria-hidden` asserted the subtree did not exist. Keyboard users could tab into an off-screen panel. It is now `inert` while closed — exactly what the browser's own message recommends — which drops the subtree from the tab order and moves focus out of it. Closing it then hands focus back to the **People** button (`Room.closePanel`), because a closed `inert` panel cannot hold focus and a keyboard user left at the top of the document cannot reopen it. |
+| `Failed to execute 'postMessage' on 'DOMWindow': The target origin provided ('https://www.youtube.com') does not match the recipient window's origin` | **not ours** | The same *words* as the first row, which is why it is worth separating them: this one comes from YouTube's own widget script inside the frame posting to the parent page. The client calls `postMessage` nowhere (the only occurrence of the string in `client/` is a comment explaining the row above), the player is constructed on the domain the API script came from, and `origin` in `playerVars` matches the page. It appears intermittently on a local `http://` origin and is not something a hosting page can suppress. |
+| `Unrecognized feature: 'web-share'` | **not ours** | Raised about the `allow` permission list of YouTube's iframe. No file in `client/` sets `web-share` or an `allow=` attribute — the attribute is on the iframe the API builds for itself. |
+
+### 7.6 Why the player waits for the room to name a video
+
+The stage used to construct the IFrame API player as soon as the component mounted, with
+whatever video id it happened to know — which on a full load of `/room/CODE` is *none*,
+because the room state arrives a few hundred milliseconds later over the socket. A player
+built with no `video id` yields an iframe with **no `src` at all**, and `onReady` — the one
+flag every part of the sync layer waits on (`applySync`, the drift loop, duration reporting)
+— never arrives. The result was precisely what was reported from a phone: an error overlay
+about an invalid video id and a "Re-sync me" button that could not help, over a room that
+was working perfectly for everyone else. The reason it looked random is that the same code
+entered from the Home screen *did* work: there the room state is already in the store before
+the room page mounts. `useYouTubeSync` now gates construction on the room having named a
+video, so the iframe is only ever built around something it can actually load — and an error
+raised while there is nothing to play is logged rather than shown, because it cannot be
+about the room.
+
 ---
 
 ## 8. Design decisions and trade-offs
 
-**The database is optional at runtime.** No `MONGODB_URI` → a no-op persistence adapter.
-A free-tier deploy therefore cannot be broken by a misconfigured Atlas cluster, and the
-in-memory path is the same one the tests run against. Cost: rooms die on restart, which is
-fine for a watch party and would not be for, say, payments.
+**The database is optional at runtime, and the deployed service has one.** No `MONGODB_URI` →
+a no-op persistence adapter, so a free-tier deploy cannot be broken by a misconfigured Atlas
+cluster, and the in-memory path is the same one the RBAC tests exercise. With it set,
+`watch_party.rooms` holds one document per party: `roomId` (unique, and the only key the app
+queries by), `videoId` — validated on write against the 11-character shape, because a
+malformed row would restore a room whose player can never load anything — plus `title`,
+`currentTime`, `durationSec`, `hostUserId`/`hostName`, `peakParticipants`, `lastActiveAt` and
+Mongoose timestamps. A TTL index on `lastActiveAt` deletes anything untouched for 7 days; every
+write refreshes that field, so a party people are still watching is never aged out.
+
+**What is deliberately *not* stored, and why.** Live socket state — who is connected, whose
+seat is waiting on approval, the chat log — is meaningless the moment the process dies, so
+persisting it would only create lies to reload later. Authority is the sharpest case: the Host
+role is minted by being the first person into an empty room (`Room.addParticipant`), and no
+document can know that whoever owned a room yesterday still owns it. A restored room is
+therefore a *fresh* room with the same video and position, and whoever walks in first runs it.
+`hostUserId` is recorded as metadata for the share-link preview, not as a claim on the next
+session.
+
+Writes are debounced 2 s per room, because a scrubber drag emits dozens of positions and only
+the last one deserves a round trip, and they are fire-and-forget from the broadcast path so a
+slow database cannot delay a `sync_state`. Reads happen only when a join asks for a code that
+is not in memory.
 
 **Server-authoritative rather than CRDT/optimistic.** Every change round-trips, adding one
 RTT of input latency (~30–80 ms). That is invisible for media playback and buys the only
@@ -446,8 +576,9 @@ server/src/
     RoomManager.js  code → Room, TTL sweeps, restore from DB
     handlers.js     ← MessageHandler: one gate in front of every event
   utils/            roomCode (unambiguous alphabet), youtube (URL → id), sanitize
-  models/Room.js    Mongoose schema, only loaded if MONGODB_URI exists
+  models/Room.js    Mongoose schema — the shape of `watch_party.rooms`
   db/mongo.js       real adapter + no-op in-memory adapter
+  scripts/          verify-rbac.js (39 checks), verify-persistence.js (16 checks)
 
 client/src/
   types.ts          ← the wire contract, both directions
@@ -458,8 +589,8 @@ client/src/
     useSocket.ts       inbound events → store
     useYouTubeSync.ts  ← the player; the sync algorithm
   pages/ Home (create/join), Room
-  components/       VideoStage, ControlBar, ParticipantList, RequestQueue,
-                    ChatPanel, ReactionBar/Layer, ShareCard, RemovedScreen, Toasts
+  components/       VideoStage, ControlBar, ParticipantList, RequestQueue, ChatPanel,
+                    ReactionBar/Layer, ShareCard, RemovedScreen, RoomUnavailable, Toasts
 ```
 
 Suggested reading order for the interview: `permissions.js` → `handlers.js` (`handleAction`)
@@ -477,8 +608,12 @@ Stated plainly, because each is a boundary rather than a defect:
 - **No cross-tab identity isolation** in the same browser profile — `userId` is in
   `localStorage`, so two tabs of one browser are one person. Use a private window to
   simulate a second user.
-- **In-memory mode loses rooms on restart**, and the free Render instance sleeps after
-  inactivity, so a cold start adds a few seconds.
+- **A restart restores the room and its owner, not its people.** With the database configured
+  the video, the position and whose room it was come back; the roster and the chat do not, and
+  whoever is in the rebuilt room first runs it until the owner returns (§5, §8). Unconfigured,
+  the room is gone and the link says so.
+- **The free Render instance sleeps** after inactivity, so the first visitor after a quiet
+  spell waits ~30–50 s for the boot while the client retries.
 - **Rate limits are per socket, not per account** — there are no accounts. A hostile
   client can open many sockets; that needs IP-level limiting or a reverse-proxy rule.
 - **The Host cannot be demoted without transferring first**, by design: a room with no

@@ -32,8 +32,21 @@ export default function SidePanel({ open, onClose }: Props) {
     { id: 'chat', label: 'Chat', badge: 0 },
   ];
 
+  /**
+   * A closed panel is off-screen, not unmounted — on a narrow viewport it is
+   * `translateX(100%)`, so its buttons were still in the tab order and could hold
+   * focus while `aria-hidden` claimed the whole subtree did not exist. Browsers
+   * now block that ("Blocked aria-hidden on an element because its descendant
+   * retained focus") and screen readers get a contradiction either way.
+   *
+   * `inert` is the fix the warning itself names: it takes the subtree out of the
+   * tab order and moves focus out if something inside it had focus. React 18 has
+   * no type for the attribute, hence the cast — it is passed straight to the DOM.
+   */
+  const inertWhenClosed = open ? {} : ({ inert: '' } as Record<string, string>);
+
   return (
-    <aside className={`panel ${open ? 'panel--open' : ''}`} aria-hidden={!open}>
+    <aside className={`panel ${open ? 'panel--open' : ''}`} aria-hidden={!open} {...inertWhenClosed}>
       <div className="panel__head">
         <div className="panel__tabs" role="tablist">
           {tabs

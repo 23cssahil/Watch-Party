@@ -36,4 +36,14 @@ function sanitizeReaction(emoji) {
   return cleanText(emoji, 8);
 }
 
-module.exports = { sanitizeUsername, sanitizeChat, sanitizeReaction };
+/**
+ * A video title, i.e. text a client read off the YouTube player and reported.
+ * Same hygiene as chat, and for the same reason: it ends up rendered next to
+ * other people's names and stored in the database.
+ * @param {unknown} title @returns {string}
+ */
+function sanitizeTitle(title) {
+  return cleanText(title, 200);
+}
+
+module.exports = { sanitizeUsername, sanitizeChat, sanitizeReaction, sanitizeTitle };

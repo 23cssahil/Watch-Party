@@ -1,5 +1,27 @@
 /**
- *== Role-Based Access Control — the single source of truth for permissions.
+ * ---------------------------------------------------------------------------
+ * Role-Based Access Control — the single source of truth for permissions.
+ * ---------------------------------------------------------------------------
+ *
+ * This module is deliberately pure (no I/O, no Socket.IO, no classes) so that
+ * the permission rules can be unit-tested and, more importantly, so that the
+ * *only* place a role is ever consulted is the server. The client never makes
+ * an authorisation decision: it receives a capability list derived from
+ * `capabilitiesFor()` and merely disables buttons for UX. A crafted socket
+ * emission that skips the UI still hits `can()` here and is refused.
+ *
+ * Two rules from the assignment meet in this file:
+ *
+ *   1. "Backend must validate permissions before processing events
+ *      (e.g. reject change_video from a Participant)"      ->  `can()`
+ *
+ *   2. "Participant must request admin/mod to approve any changes for them
+ *      to come into action"  ->  `needsApproval()` + `REQUESTABLE_ACTIONS`
+ *
+ * Rule 2 refines rule 1: for playback actions a Participant is not silently
+ * denied, they are *escalated into a request* that Host/Moderators must
+ * approve. For host-only governance actions (assigning roles, kicking people)
+ * there is no request path — those are a flat refusal.
  */
 
 const ROLES = Object.freeze({
@@ -8,11 +30,11 @@ const ROLES = Object.freeze({
   PARTICIPANT: 'participant',
 });
 
-/*
+/**
  * The brief lists "Viewer" as "Same as Participant (alias, if you want to
  * distinguish)". We accept the word on the wire but collapse it to
  * `participant` immediately, so no downstream code ever branches on a role
- * that has no distinct behaviour. Fewer roles ==       fewer permission bugs.
+ * that has no distinct behaviour. Fewer roles == fewer permission bugs.
  */
 const ROLE_ALIASES = Object.freeze({
   viewer: ROLES.PARTICIPANT,

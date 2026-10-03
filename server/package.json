@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "verify": "node scripts/verify-rbac.js"
+    "verify": "node scripts/verify-rbac.js",
+    "verify:db": "node scripts/verify-persistence.js"
   },
   "dependencies": {
     "compression": "^1.8.2",

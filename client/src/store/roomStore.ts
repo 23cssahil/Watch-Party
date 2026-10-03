@@ -217,7 +217,16 @@ export const useRoomStore = create<RoomStore>((set, get) => ({
 
   setJoinError: (message) => set({ joinError: message }),
 
-  reset: () => set({ ...initial }),
+  /**
+   * Forget the room, never the connection.
+   *
+   * `status` and `transport` describe the socket, which is still alive when a
+   * room is left — blanking them to `idle` is what made the stage sit on
+   * "Reconnecting to the room…" forever after pressing Leave, with nothing left
+   * to clear it, and blocked the page's own re-join effect (which waits for a
+   * connected socket) from ever running again.
+   */
+  reset: () => set((state) => ({ ...initial, status: state.status, transport: state.transport })),
 }));
 
 /**

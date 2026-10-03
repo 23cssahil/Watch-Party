@@ -59,6 +59,35 @@ class Room {
     this.chatLog = [];
 
     /**
+     * Title of the video currently loaded, reported by a client that actually
+     * asked the player. Kept off `state` on purpose: it is metadata for the
+     * durable record and the share-link preview, and no playback rule reads it,
+     * so a client lying about it can only corrupt a label, never a decision.
+     */
+    this.videoTitle = '';
+
+    /** Widest the room has ever been. Persisted, so Atlas rows show real use. */
+    this.peakSize = 0;
+
+    /**
+     * Whether a Host has ever been minted for this room. A room that has been
+     * handed over must not let whoever happens to arrive first into a temporarily
+     * empty room claim ownership of it.
+     */
+    this.hostClaimed = false;
+
+    /**
+     * The userId this room belongs to, outliving their socket.
+     *
+     * Without it a refresh costs the Host the room: their connection drops, and
+     * if nobody else is present there is no one to inherit the role, so the room
+     * sat permanently hostless — no playback control, and no one left who could
+     * approve a participant's request. Ownership is remembered so the owner comes
+     * back as the owner.
+     */
+    this.hostUserId = '';
+
+    /**
      * Authoritative shared playback state.
      * `currentTime` is the position *as of* `updatedAt`; while playing, the
      * true position is derived from the clock rather than being polled, so an
@@ -149,7 +178,8 @@ class Room {
     }
 
     // First person into an empty room owns it — this is the *only* place the
-    // host role is ever minted, so it cannot be claimed from a client payload.
+    // host role is minted from an arrival, so it cannot be claimed from a client
+    // payload.
     const isFirstEver = this.participants.size === 0 && !this.hostClaimed;
     const participant = new Participant({
       userId,
@@ -159,7 +189,13 @@ class Room {
     });
     this.participants.set(userId, participant);
     this.dropRosterCache();
-    if (participant.isHost) this.hostClaimed = true;
+    if (participant.isHost) this.hostUserId = userId;
+    // Cover the case arrival alone cannot: the room has no host right now, and
+    // this newcomer is either its recorded owner returning, or the only person
+    // there. Either way the room must not stay in a state where nothing can be
+    // decided.
+    this.ensureHost();
+    if (this.participants.size > this.peakSize) this.peakSize = this.participants.size;
     this.touch();
     return { participant, rejoined: false };
   }
@@ -179,19 +215,41 @@ class Room {
       if (request.userId === userId) this.requests.delete(requestId);
     }
 
-    // Hostless room would freeze playback for everyone, so the role is
-    // inherited by whoever has been connected longest.
-    if (participant.isHost) this.promoteSuccessorHost();
+    // Never leave a room without someone who can decide things.
+    this.ensureHost();
     this.touch();
     return participant;
   }
 
-  /** Reassign Host to the longest-tenured remaining person. */
-  promoteSuccessorHost() {
-    const heir = this.listParticipants()[0];
+  /**
+   * Guarantee the room has a Host, and say who it is.
+   *
+   * Priority: whoever already holds the role; then this room's recorded owner if
+   * they are present, so a Host refreshing an otherwise-empty page returns as the
+   * Host instead of a Participant; then the longest-tenured person still in the
+   * room. Idempotent — safe to call on every arrival and every departure.
+   *
+   * @returns {Participant|null} the host, or null while the room is empty
+   */
+  ensureHost() {
+    const current = this.getHost();
+    if (current) {
+      this.hostClaimed = true;
+      if (this.hostUserId !== current.userId) this.hostUserId = current.userId;
+      return current;
+    }
+
+    const heir =
+      (this.hostUserId ? this.participants.get(this.hostUserId) : null) ||
+      this.listParticipants()[0] ||
+      null;
     if (!heir) return null;
+
     heir.setRole(ROLES.HOST);
+    this.hostUserId = heir.userId;
     this.hostClaimed = true;
+    // A role change moves the person within the roster view they are served.
+    this.dropRosterCache();
     return heir;
   }
 
@@ -307,14 +365,28 @@ class Room {
   }
 
   /**
-   * Records a video duration reported by a client (only Host/Moderator accepted
-   * by the handler). Needed so `seek` can be clamped and drift maths is sane.
+   * Records what a client's player actually loaded.
+   *
+   * The duration is functional: without it `seek` cannot clamp and the drift
+   * maths has no ceiling. The title is only a label (see `videoTitle`).
+   *
+   * Accepted from anyone in the room — the value grants no control, and the
+   * first person to finish loading a video is usually not the Host. Anything a
+   * client sends here is validated at the wire boundary, not in this method.
    * @param {number} duration
+   * @param {string} [title]
    */
-  reportDuration(duration) {
+  reportDuration(duration, title) {
     const value = Number(duration);
-    if (!Number.isFinite(value) || value <= 0 || value > 86400) return;
-    this.state.duration = value;
+    if (Number.isFinite(value) && value > 0 && value <= 86400) this.state.duration = value;
+
+    const next = typeof title === 'string' ? title : '';
+    if (next && next !== this.videoTitle) {
+      this.videoTitle = next;
+      // The title is the only human-readable field in the durable row, so
+      // learning it is worth a write even when nothing about playback changed.
+      this.markDirty();
+    }
   }
 
   /**
@@ -527,6 +599,8 @@ class Room {
 
     actor.setRole(ROLES.PARTICIPANT);
     target.setRole(ROLES.HOST);
+    // Ownership moves with the role, so a later refresh restores the *new* Host.
+    this.hostUserId = target.userId;
     this.touch();
     this.markDirty();
     return {

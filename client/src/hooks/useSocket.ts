@@ -74,11 +74,31 @@ export function useSocket(): void {
       hasConnectedOnce.current = true;
     };
 
+    /**
+     * The link dropped — but retries are already scheduled, so the honest status
+     * is "connecting", not "disconnected".
+     *
+     * `disconnected` is reserved for `reconnect_failed` below, i.e. the transport
+     * genuinely stopped. That distinction is what makes the landing page's
+     * "Try again" button meaningful instead of decorative: it only appears when
+     * nothing is retrying any more.
+     */
     const onDisconnect = (reason: string) => {
-      store.getState().setStatus('disconnected');
+      store.getState().setStatus('connecting');
       if (reason !== 'io client disconnect') {
         store.getState().pushToast('Connection lost — reconnecting…', 'warn');
       }
+    };
+
+    /**
+     * A connection attempt failed.
+     *
+     * Socket.IO keeps retrying by itself, so this only keeps the status honest:
+     * after a manual retry from a gave-up state, the page says "connecting" while
+     * attempts are in flight instead of sitting on the terminal message.
+     */
+    const onConnectError = () => {
+      if (!socket.connected) store.getState().setStatus('connecting');
     };
 
     /**
@@ -227,6 +247,7 @@ export function useSocket(): void {
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
+    socket.on('connect_error', onConnectError);
     socket.io.on('reconnect_failed', onReconnectFailed);
     socket.on('room_state', onRoomState);
     socket.on('sync_state', onSyncState);
@@ -250,6 +271,7 @@ export function useSocket(): void {
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
+      socket.off('connect_error', onConnectError);
       socket.io.off('reconnect_failed', onReconnectFailed);
       socket.off('room_state', onRoomState);
       socket.off('sync_state', onSyncState);

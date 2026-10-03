@@ -2,6 +2,8 @@ node_modules/
 .env
 .env.local
 *.log
+# Local run captures (Start-Process redirects stdout/stderr here while testing)
+*.err
 .DS_Store
 
 # Copied client bundle in the Render deploy layout (created by the build step)

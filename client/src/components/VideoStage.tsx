@@ -49,7 +49,16 @@ export default function VideoStage() {
         )}
 
         {status !== 'connected' && (
-          <div className="stage__banner">Reconnecting to the room…</div>
+          /*
+            Wording tracks the real state. `idle` means this page has not had a
+            connection yet; calling that "reconnecting" implies a drop that never
+            happened. A genuine drop puts the socket in `connecting`, and a transport
+            that stopped trying swaps this screen for `RoomUnavailable`, which has a
+            working retry.
+          */
+          <div className="stage__banner">
+            {status === 'idle' ? 'Connecting to the room…' : 'Reconnecting to the room…'}
+          </div>
         )}
 
         {sync && !player.ready && !player.error && (

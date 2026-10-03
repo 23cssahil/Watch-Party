@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { joinRoom, leaveRoom } from '../actions';
 import { getIdentity } from '../socket';
 import { useRoomStore } from '../store/roomStore';
@@ -25,6 +25,7 @@ import RoomUnavailable from '../components/RoomUnavailable';
  */
 export default function Room() {
   const { code = '' } = useParams<{ code: string }>();
+  const navigate = useNavigate();
   // Held in state rather than memoised, so that saving a name is visible to the
   // join effect on the next render. A first-time visitor on a dead link would
   // otherwise be bounced back to the name gate after pressing retry and asked to
@@ -41,8 +42,36 @@ export default function Room() {
 
   const [name, setName] = useState(identity.username);
   const [panelOpen, setPanelOpen] = useState(false);
+  const panelToggleRef = useRef<HTMLButtonElement>(null);
+
+  /**
+   * Closing the panel makes it `inert`, and at that moment focus is normally
+   * *inside* it — the ✕ that triggered the close lives there. Leaving it stranded
+   * drops a keyboard user to the top of the document with nothing to come back to
+   * (and is the exact condition Chrome warns about with "Blocked aria-hidden on an
+   * element because its descendant retained focus"), so focus is handed to the one
+   * control that can reopen the panel.
+   */
+  const closePanel = () => {
+    setPanelOpen(false);
+    panelToggleRef.current?.focus();
+  };
 
   const wantsToJoin = code.trim().toUpperCase();
+
+  /**
+   * Leaving has to actually leave.
+   *
+   * `leaveRoom()` clears the store, and the join effect just below reads an empty
+   * store as "not in a room yet" — so while this page stayed mounted, the effect
+   * re-joined the very code being left, and the only visible result was a
+   * "Reconnecting to the room…" banner that never went away. Unmounting first
+   * makes the button mean what it says.
+   */
+  const onLeave = () => {
+    leaveRoom();
+    navigate('/');
+  };
 
   useEffect(() => {
     // `joinError` is in the dependency list on purpose: it both stops the retry
@@ -126,11 +155,13 @@ export default function Room() {
           <button
             type="button"
             className="btn btn--tiny"
-            onClick={() => setPanelOpen((open) => !open)}
+            ref={panelToggleRef}
+            aria-expanded={panelOpen}
+            onClick={() => (panelOpen ? closePanel() : setPanelOpen(true))}
           >
             {panelOpen ? 'Hide panel' : `People ${participants.length ? `(${participants.length})` : ''}`}
           </button>
-          <button type="button" className="btn btn--tiny btn--danger" onClick={leaveRoom}>
+          <button type="button" className="btn btn--tiny btn--danger" onClick={onLeave}>
             Leave
           </button>
         </div>
@@ -138,7 +169,7 @@ export default function Room() {
 
       <div className={`room__body ${panelOpen ? 'room__body--panel' : ''}`}>
         <VideoStage />
-        <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} />
+        <SidePanel open={panelOpen} onClose={closePanel} />
       </div>
 
       <ReactionLayer />

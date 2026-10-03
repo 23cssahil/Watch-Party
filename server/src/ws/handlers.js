@@ -8,7 +8,7 @@ const {
 } = require('./permissions');
 const { normalizeRoomCode } = require('../utils/roomCode');
 const { resolveVideoId } = require('../utils/youtube');
-const { sanitizeUsername, sanitizeChat, sanitizeReaction } = require('../utils/sanitize');
+const { sanitizeUsername, sanitizeChat, sanitizeReaction, sanitizeTitle } = require('../utils/sanitize');
 
 /**
  * ---------------------------------------------------------------------------
@@ -245,7 +245,23 @@ class MessageHandler {
    * @param {{ userId: string, username: string, ack?: Function, announce?: boolean }} opts
    */
   enter(socket, room, { userId, username, ack, announce = false }) {
-    if (socket.data.roomId) socket.leave(socket.data.roomId);
+    // One socket, one room — and leaving the old channel is not enough.
+    //
+    // Without a real exit, the room being abandoned kept a Participant whose
+    // socket no longer existed: a ghost in the roster that inflated the headcount,
+    // stopped the room from ever reading as empty, and — if the ghost had been the
+    // Host — left a room nobody could control or approve anything in. This is
+    // reachable by pressing the logo to go Home and then "Create room".
+    //
+    // Re-entering the *same* code is not a departure: the seat is already theirs,
+    // and `addParticipant` re-attaches the new socket to it (that is the reload and
+    // rename path, and it must keep their role).
+    const previousCode = normalizeRoomCode(socket.data.roomId);
+    if (previousCode && previousCode !== room.id) {
+      const previous = this.roomManager.get(previousCode);
+      if (previous) this.exit(socket, previous, 'left');
+    }
+
     socket.join(room.id);
     socket.data.roomId = room.id;
     socket.data.userId = userId;
@@ -653,14 +669,18 @@ class MessageHandler {
   }
 
   /**
-   * Clients report the real duration of the loaded video so the server can
-   * clamp seeks. Accepted from anyone, but validated as a number — the value
-   * is informational, it grants no control.
+   * Clients report what their player loaded: the real duration (so the server
+   * can clamp seeks) and the title (so the durable row and the share-link
+   * preview say what a party is watching, not just an 11-character id).
+   *
+   * Accepted from anyone, and validated here at the wire boundary. Neither
+   * value grants control: a client can mislabel a room, but it cannot seek,
+   * pause or promote anyone through this event.
    */
   reportDuration(socket, payload = {}) {
     const ctx = this.context(socket);
     if (!ctx) return;
-    ctx.room.reportDuration(payload.duration);
+    ctx.room.reportDuration(payload.duration, sanitizeTitle(payload.title));
   }
 
   chat(socket, payload = {}) {
@@ -697,18 +717,43 @@ class MessageHandler {
 
   /**
    * Called by the HTTP layer when a room is inspected by code (share-link
-   * preview). Read-only, no membership implied.
+   * preview). Read-only, no membership implied, and it never creates a room —
+   * a lookup for a dead code must not resurrect it as a live object.
+   *
+   * Answers with `live: false` and whatever the database remembers when no one
+   * is in the room, which is the difference between "that code never existed"
+   * and "that party is over": the two things a dead share link needs to say.
    * @param {string} code
+   * @returns {Promise<object|null>}
    */
-  peek(code) {
+  async peek(code) {
     const room = this.roomManager.get(code);
-    if (!room) return null;
+    if (room) {
+      return {
+        live: true,
+        roomId: room.id,
+        videoId: room.state.videoId,
+        title: room.videoTitle,
+        position: Math.round(room.positionNow()),
+        isPlaying: room.state.isPlaying,
+        participants: room.size,
+        peakParticipants: room.peakSize,
+        hasHost: Boolean(room.getHost()),
+        roleHints: capabilitiesFor(ROLES.PARTICIPANT),
+      };
+    }
+
+    const saved = await this.roomManager.peekSaved(code);
+    if (!saved) return null;
     return {
-      roomId: room.id,
-      videoId: room.state.videoId,
-      participants: room.size,
-      hasHost: Boolean(room.getHost()),
-      roleHints: capabilitiesFor(ROLES.PARTICIPANT),
+      live: false,
+      roomId: code,
+      videoId: saved.videoId,
+      title: saved.title,
+      position: Math.round(saved.currentTime),
+      participants: 0,
+      peakParticipants: saved.peakParticipants,
+      lastActiveAt: saved.createdAt,
     };
   }
 }

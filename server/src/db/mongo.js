@@ -16,6 +16,9 @@ const WatchRoom = require('../models/Room');
  * a scrubber emits dozens of events; writing each one would be pure load with no
  * benefit, because only the final position matters after a restart.
  *
+ * The shape written is `watch_party.rooms` — see `models/Room.js` for why each
+ * field is there and why live socket state is deliberately left out.
+ *
  * @returns {{ enabled: boolean, save: Function, load: Function, connect: Function, label: string }}
  */
 function createPersistence() {
@@ -62,11 +65,20 @@ function createPersistence() {
         WatchRoom.findOneAndUpdate(
           { roomId: room.id },
           {
-            roomId: room.id,
-            videoId: room.state.videoId,
-            currentTime: Math.round(room.positionNow() * 1000) / 1000,
-            hostName: host ? host.username : '',
-            lastActiveAt: new Date(),
+            $set: {
+              roomId: room.id,
+              videoId: room.state.videoId,
+              title: room.videoTitle,
+              currentTime: Math.round(room.positionNow() * 1000) / 1000,
+              durationSec: Math.round(room.state.duration * 1000) / 1000,
+              hostUserId: host ? host.userId : '',
+              hostName: host ? host.username : '',
+              lastActiveAt: new Date(),
+            },
+            // `$max` rather than `$set`: the peak is a fact about history, so a
+            // room restored after a restart (whose live peak starts at 1) must
+            // never overwrite a bigger number that was recorded earlier.
+            $max: { peakParticipants: room.peakSize },
           },
           { upsert: true, new: true }
         ).catch((error) => console.warn('[persistence] write failed:', error.message));
@@ -82,7 +94,18 @@ function createPersistence() {
       if (mongoose.connection.readyState !== 1) return null;
       try {
         const doc = await WatchRoom.findOne({ roomId }).lean();
-        return doc ? { videoId: doc.videoId, currentTime: doc.currentTime, createdAt: doc.createdAt } : null;
+        if (!doc) return null;
+        // Shaped for `RoomManager.getOrRestore`, not a raw document: the caller
+        // should not have to know which fields were added to the schema when.
+        return {
+          videoId: doc.videoId,
+          title: doc.title || '',
+          currentTime: Number(doc.currentTime) || 0,
+          duration: Number(doc.durationSec) || 0,
+          hostUserId: doc.hostUserId || '',
+          peakParticipants: Number(doc.peakParticipants) || 0,
+          createdAt: doc.createdAt,
+        };
       } catch (error) {
         console.warn('[persistence] read failed:', error.message);
         return null;
