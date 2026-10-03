@@ -11,19 +11,15 @@ interface Props {
 /**
  * Shown when the room behind a share link refused to be joined.
  *
- * This screen exists because of a specific failure that is otherwise invisible.
- * A room lives in the server's memory; a free instance that sleeps, restarts or
- * redeploys comes back with *no* rooms at all. So a link shared twenty minutes
- * ago is genuinely dead — and before this existed, the page handled that by
- * showing a black stage and a toast that vanished in four seconds. From the
- * other side it looked exactly like a broken app: "the link doesn't open".
- *
- * The retry does two things, and both are needed: it clears the recorded
- * refusal, which re-runs the join effect on the Room page, and it nudges
- * Socket.IO back into connecting, in case what actually failed was reaching the
- * server rather than the room itself.
+ * Two distinct cases are handled:
+ * 1. Host explicitly ended the party — show a "party over" message and no retry.
+ * 2. Room not found (server restarted, etc.) — show retry and technical hint.
  */
 export default function RoomUnavailable({ code, error }: Props) {
+  const hostEnded =
+    error.toLowerCase().includes('host ended') ||
+    error.toLowerCase().includes('ended the party');
+
   const retry = () => {
     useRoomStore.getState().setJoinError(null);
     if (!socket.connected) socket.connect();
@@ -31,11 +27,29 @@ export default function RoomUnavailable({ code, error }: Props) {
 
   const startOver = () => useRoomStore.getState().reset();
 
+  if (hostEnded) {
+    return (
+      <main className="gate">
+        <div className="gate__card">
+          <p className="gate__eyebrow">Room {code}</p>
+          <h2>The party has ended 🎬</h2>
+          <p className="gate__reason">{error}</p>
+          <p className="gate__reason">
+            The host closed this room. Start your own party below!
+          </p>
+          <Link className="btn btn--primary" to="/" onClick={startOver}>
+            Go home
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="gate">
       <div className="gate__card">
         <p className="gate__eyebrow">Room {code}</p>
-        <h2>This link has no room behind it</h2>
+        <h2>Room not found</h2>
         <p className="gate__reason">{error}</p>
         <p className="gate__reason">
           Rooms live in memory, so a server that restarted or woke from sleep has

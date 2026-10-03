@@ -243,6 +243,13 @@ export function useSocket(): void {
       store.getState().setRemoved({ by, reason });
     };
 
+    // Host explicitly ended the party — tell every remaining viewer via a
+    // dedicated event so they get a clean "room not found" screen on retry.
+    const onRoomDeleted = ({ message }: { roomId: string; message: string }) => {
+      store.getState().reset();
+      store.getState().setJoinError(message || 'The host ended the party.');
+    };
+
     const onError = ({ message }: RoomErrorPayload) => store.getState().pushToast(message, 'error');
 
     socket.on('connect', onConnect);
@@ -264,6 +271,7 @@ export function useSocket(): void {
     socket.on('chat_message', onChat);
     socket.on('reaction', onReaction);
     socket.on('removed_from_room', onRemoved);
+    socket.on('room_deleted', onRoomDeleted);
     socket.on('room_error', onError);
 
     store.getState().setStatus(socket.connected ? 'connected' : 'connecting');
@@ -288,6 +296,7 @@ export function useSocket(): void {
       socket.off('chat_message', onChat);
       socket.off('reaction', onReaction);
       socket.off('removed_from_room', onRemoved);
+      socket.off('room_deleted', onRoomDeleted);
       socket.off('room_error', onError);
     };
   }, [store]);

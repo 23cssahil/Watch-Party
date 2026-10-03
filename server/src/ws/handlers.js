@@ -289,7 +289,19 @@ class MessageHandler {
   leaveRoom(socket) {
     const ctx = this.context(socket);
     if (!ctx) return;
-    this.exit(socket, ctx.room, 'left');
+    const { room, me } = ctx;
+
+    // When the host explicitly clicks "Leave", close the room entirely.
+    // Every remaining viewer gets a `room_deleted` event so they can show
+    // a proper "Host ended the party" screen instead of a generic error.
+    if (me.isHost && room.size > 1) {
+      this.io.to(room.id).except(socket.id).emit('room_deleted', {
+        roomId: room.id,
+        message: 'The host ended the party.',
+      });
+    }
+
+    this.exit(socket, room, 'left');
   }
 
   /**

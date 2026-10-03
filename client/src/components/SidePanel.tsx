@@ -5,7 +5,7 @@ import RequestQueue from './RequestQueue';
 import ChatPanel from './ChatPanel';
 import ShareCard from './ShareCard';
 
-type Tab = 'people' | 'requests' | 'chat';
+type Tab = 'people' | 'share' | 'requests' | 'chat';
 
 interface Props {
   open: boolean;
@@ -19,29 +19,29 @@ interface Props {
  * The Requests tab is only shown to people the server marked as approvers —
  * note that this is a *rendering* decision taken from the server's own
  * `capabilities.canApprove`, not a client-side guess about roles.
+ *
+ * Tabs:
+ * - People: scrollable, paginated user list (in-room)
+ * - Share: invite link + room code
+ * - Requests: host/mod only approval queue
+ * - Chat: group chat
  */
 export default function SidePanel({ open, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('people');
   const canApprove = useRoomStore((state) => Boolean(state.me?.capabilities.canApprove));
   const requestCount = useRoomStore((state) => state.requests.length);
-  const chatCount = useRoomStore((state) => state.chat.length);
+  const participants = useRoomStore((state) => state.participants);
 
   const tabs: { id: Tab; label: string; badge?: number; hidden?: boolean }[] = [
-    { id: 'people', label: 'People' },
+    { id: 'people', label: `People`, badge: participants.length },
+    { id: 'share', label: 'Share' },
     { id: 'requests', label: 'Requests', badge: requestCount, hidden: !canApprove },
-    { id: 'chat', label: 'Chat', badge: 0 },
+    { id: 'chat', label: 'Chat' },
   ];
 
   /**
-   * A closed panel is off-screen, not unmounted — on a narrow viewport it is
-   * `translateX(100%)`, so its buttons were still in the tab order and could hold
-   * focus while `aria-hidden` claimed the whole subtree did not exist. Browsers
-   * now block that ("Blocked aria-hidden on an element because its descendant
-   * retained focus") and screen readers get a contradiction either way.
-   *
-   * `inert` is the fix the warning itself names: it takes the subtree out of the
-   * tab order and moves focus out if something inside it had focus. React 18 has
-   * no type for the attribute, hence the cast — it is passed straight to the DOM.
+   * `inert` is the fix for aria-hidden focus trapping issues on closed panels.
+   * React 18 has no type for the attribute, hence the cast.
    */
   const inertWhenClosed = open ? {} : ({ inert: '' } as Record<string, string>);
 
@@ -61,8 +61,9 @@ export default function SidePanel({ open, onClose }: Props) {
                 onClick={() => setTab(entry.id)}
               >
                 {entry.label}
-                {entry.id === 'chat' && chatCount > 0 && <span className="panel__muted">{chatCount}</span>}
-                {entry.badge ? <span className="panel__badge">{entry.badge}</span> : null}
+                {entry.badge != null && entry.badge > 0 && (
+                  <span className="panel__badge">{entry.badge}</span>
+                )}
               </button>
             ))}
         </div>
@@ -72,12 +73,8 @@ export default function SidePanel({ open, onClose }: Props) {
       </div>
 
       <div className="panel__body">
-        {tab === 'people' && (
-          <>
-            <ShareCard />
-            <ParticipantList />
-          </>
-        )}
+        {tab === 'people' && <ParticipantList />}
+        {tab === 'share' && <ShareCard />}
         {tab === 'requests' && <RequestQueue />}
         {tab === 'chat' && <ChatPanel />}
       </div>

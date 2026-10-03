@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { assignRole, removeParticipant, transferHost } from '../actions';
 import { useRoomStore } from '../store/roomStore';
 import { colorFor, initials } from '../lib/format';
 import type { Participant, Role } from '../types';
+
+const PAGE_SIZE = 8;
 
 /**
  * The roster, with the Host's governance controls.
@@ -14,11 +17,16 @@ import type { Participant, Role } from '../types';
  * the capability list in their own store is replaced by the server's new answer
  * and these controls disappear from their screen without any local logic
  * deciding to hide them.
+ *
+ * Pagination: with many viewers the list can get very long. We show PAGE_SIZE
+ * participants at a time with Previous / Next navigation, keeping it inside the
+ * panel without horizontal scroll.
  */
 export default function ParticipantList() {
   const participants = useRoomStore((state) => state.participants);
   const me = useRoomStore((state) => state.me);
   const requests = useRoomStore((state) => state.requests);
+  const [page, setPage] = useState(0);
 
   const isHost = me?.role === 'host';
   const canGovern = Boolean(me?.capabilities.allowedActions.includes('assign_role'));
@@ -28,6 +36,10 @@ export default function ParticipantList() {
     pendingByUser.set(request.userId, (pendingByUser.get(request.userId) ?? 0) + 1);
   }
 
+  const totalPages = Math.max(1, Math.ceil(participants.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const visible = participants.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
   return (
     <div className="people">
       <div className="people__header">
@@ -36,7 +48,7 @@ export default function ParticipantList() {
       </div>
 
       <ul className="people__list">
-        {participants.map((person) => (
+        {visible.map((person) => (
           <ParticipantRow
             key={person.userId}
             person={person}
@@ -47,6 +59,30 @@ export default function ParticipantList() {
           />
         ))}
       </ul>
+
+      {totalPages > 1 && (
+        <div className="people__pagination">
+          <button
+            type="button"
+            className="btn btn--tiny"
+            disabled={safePage === 0}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+          >
+            ← Prev
+          </button>
+          <span className="people__page-info">
+            {safePage + 1} / {totalPages}
+          </span>
+          <button
+            type="button"
+            className="btn btn--tiny"
+            disabled={safePage >= totalPages - 1}
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+          >
+            Next →
+          </button>
+        </div>
+      )}
     </div>
   );
 }

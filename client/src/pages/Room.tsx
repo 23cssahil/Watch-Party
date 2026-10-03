@@ -159,7 +159,7 @@ export default function Room() {
             aria-expanded={panelOpen}
             onClick={() => (panelOpen ? closePanel() : setPanelOpen(true))}
           >
-            {panelOpen ? 'Hide panel' : `People ${participants.length ? `(${participants.length})` : ''}`}
+            {panelOpen ? '✕ Close' : `People ${participants.length ? `(${participants.length})` : ''}`}
           </button>
           <button type="button" className="btn btn--tiny btn--danger" onClick={onLeave}>
             Leave
