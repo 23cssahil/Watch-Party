@@ -157,8 +157,30 @@ export const useRoomStore = create<RoomStore>((set, get) => ({
 
   setParticipants: (participants) => set({ participants }),
 
+  /**
+   * Replace the roster, and with it the room's answer to "who runs this".
+   *
+   * `me` is refreshed from the same list on purpose. Every event that carries a
+   * roster — `user_left`, `host_transferred`, `role_assigned`,
+   * `participant_removed` — is precisely a moment when my own role may have just
+   * changed underneath me: a Host leaving hands the room to the longest-tenured
+   * survivor, and the controls of the person who just became Host should be live
+   * on the beat that announced it rather than waiting on the follow-up snapshot.
+   * The UI reads its permissions from `me.capabilities`, so a stale `me` means a
+   * host-shaped seat rendering viewer-shaped buttons — and the server would
+   * happily accept those clicks, which is the worst kind of confusing.
+   */
   setHostFromList: (participants) =>
-    set({ participants, host: participants.find((p) => p.role === 'host') ?? null }),
+    set((state) => {
+      const mine = state.me
+        ? participants.find((p) => p.userId === state.me?.userId) ?? state.me
+        : state.me;
+      return {
+        participants,
+        host: participants.find((p) => p.role === 'host') ?? null,
+        me: mine,
+      };
+    }),
 
   setRequests: (requests) => set({ requests }),
 

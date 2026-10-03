@@ -326,6 +326,86 @@ async function main() {
   check('that room is still reported live, just empty', leftBehind?.room?.live === true);
   drifter.socket.close();
 
+  // 16. The succession rule, stated as something that can fail: when the Host
+  //     leaves, the room passes to whoever has been in it longest - on the
+  //     departure itself, with no refresh in between. The Moderator is
+  //     deliberately the NEWEST member here, so this cannot pass by "an approver
+  //     inherited"; only tenure satisfies it.
+  const throne = connect('King', 'user-king');
+  throne.socket.emit('create_room', { username: 'King', userId: 'user-king' });
+  const throneRoom = (await throne.recorder.waitFor('room_state')).payload.roomId;
+
+  const elder = connect('Elder', 'user-elder');
+  elder.socket.emit('join_room', { roomId: throneRoom, username: 'Elder', userId: 'user-elder' });
+  await elder.recorder.waitFor('room_state');
+  await wait(150); // joinedAt has millisecond resolution; keep the order unambiguous
+  const latest = connect('Latest', 'user-latest');
+  latest.socket.emit('join_room', { roomId: throneRoom, username: 'Latest', userId: 'user-latest' });
+  await latest.recorder.waitFor('room_state');
+  throne.socket.emit('assign_role', { userId: 'user-latest', role: 'moderator' });
+  await throne.recorder.waitFor('role_assigned');
+
+  elder.recorder.received.length = 0;
+  latest.recorder.received.length = 0;
+  throne.socket.emit('leave_room');
+
+  const handed = (await elder.recorder.waitFor('host_transferred', 2500).catch(() => null))?.payload;
+  check('the room hands over the moment the Host leaves', Boolean(handed));
+  check(
+    'to the longest-tenured survivor, not to the Moderator',
+    handed?.userId === 'user-elder',
+    handed?.userId
+  );
+  // Wait for it rather than asking "is it there yet": both copies go out in the
+  // same broadcast, and reading one socket's buffer the instant the other's event
+  // lands is a race that passes or fails by scheduling, not by behaviour.
+  const alsoHeard = (
+    await latest.recorder.waitFor('host_transferred', 1500).catch(() => null)
+  )?.payload;
+  check(
+    'and the rest of the room hears the same handover',
+    alsoHeard?.userId === 'user-elder',
+    alsoHeard?.userId
+  );
+  check(
+    'with exactly one host in the roster that was sent',
+    (handed?.participants || []).filter((p) => p.role === 'host').length === 1
+  );
+
+  const elderState = (
+    await elder.recorder.waitFor('room_state', 2500).catch(() => null)
+  )?.payload;
+  check(
+    'the new Host is told they now run the room',
+    elderState?.me?.role === 'host',
+    elderState?.me?.role
+  );
+  check(
+    'so their controls work without reloading',
+    elderState?.me?.capabilities?.allowedActions?.includes('assign_role') === true
+  );
+
+  // And the reverse: a returning former Host does not undo the succession. A tab
+  // closed for two seconds must not silently demote whoever has been running the
+  // party in the meantime.
+  throne.recorder.received.length = 0; // the create_room snapshot would answer first
+  throne.socket.emit('join_room', { roomId: throneRoom, username: 'King', userId: 'user-king' });
+  const kingBack = (await throne.recorder.waitFor('room_state', 2500).catch(() => null))?.payload;
+  check(
+    'a returning former Host comes back as a Participant',
+    kingBack?.me?.role === 'participant',
+    kingBack?.me?.role
+  );
+  check(
+    'and the promoted Host keeps the room',
+    kingBack?.host?.userId === 'user-elder',
+    kingBack?.host?.userId
+  );
+
+  throne.socket.close();
+  elder.socket.close();
+  latest.socket.close();
+
   host.socket.close();
   guest.socket.close();
 

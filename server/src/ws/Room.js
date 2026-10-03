@@ -250,6 +250,12 @@ class Room {
     this.hostClaimed = true;
     // A role change moves the person within the roster view they are served.
     this.dropRosterCache();
+    // Ownership is durable data, not just live socket state: a room whose Host
+    // was inherited has to remember *that*, or a restart would hand the restored
+    // row back still naming the person who left. Writes are debounced per room
+    // (db/mongo.js), and a succession is a once-in-a-room event, so this costs
+    // essentially nothing.
+    this.markDirty();
     return heir;
   }
 

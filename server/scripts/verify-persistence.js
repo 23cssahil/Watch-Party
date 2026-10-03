@@ -109,6 +109,28 @@ async function main() {
     check('the HTTP preview answers for a live room', preview.ok === true && preview.room.live === true);
     check('and it shows the title rather than a bare video id', Boolean(preview.room?.title), preview.room?.title);
 
+    // ------------------------------------------------------------- succession
+    // Ownership is durable data, not only live socket state. When the Host leaves
+    // and the longest-tenured survivor takes over, the row has to name the NEW
+    // owner: a restart that restored a room whose stored host walked out an hour
+    // ago would put the wrong person in charge of the revived room.
+    const heir = io(URL, { transports: ['websocket'], timeout: 20000 });
+    await new Promise((resolve, reject) => {
+      heir.once('connect_error', reject);
+      heir.on('connect', () => {
+        heir.emit('join_room', { roomId, username: 'Heir', userId: 'verify-db-heir' }, resolve);
+      });
+    });
+    socket.emit('leave_room');
+    await wait(WRITE_ALLOWANCE_MS);
+    const handedOver = await WatchRoom.findOne({ roomId }).lean();
+    check(
+      'an inherited Host is the owner the row remembers',
+      handedOver?.hostUserId === 'verify-db-heir',
+      `${handedOver?.hostUserId} / ${handedOver?.hostName}`
+    );
+    heir.close();
+
     // Closing the socket empties the room; the row must outlive it, because that
     // is what lets an old share link reopen the party after a restart.
     socket.disconnect();

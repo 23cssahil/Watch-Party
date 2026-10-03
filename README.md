@@ -79,7 +79,7 @@ npm run verify
 ```
 
 This drives **two real Socket.IO clients** against a running server and asserts on the
-events they receive — 39 checks, going through the same wire path a browser uses. It
+events they receive — 47 checks, going through the same wire path a browser uses. It
 covers the adversarial cases rather than the happy path:
 
 - a client that *claims* `role: 'host'` in its join payload still joins as a participant
@@ -90,7 +90,7 @@ covers the adversarial cases rather than the happy path:
 - a `join_room` for a code that does not exist is *answered* with a reason, never dropped
   (this is the acknowledgement the share-link screen depends on)
 
-Expected tail: `39/39 checks passed`.
+Expected tail: `47/47 checks passed`.
 
 If you set `MONGODB_URI`, there is a second suite for the database itself:
 
@@ -108,7 +108,7 @@ it created (`npm run verify` is not so surgical: against a database-enabled serv
 a test row or two behind, which the TTL ages out after 7 days), and exits 0 with a note when
 no database is configured.
 
-Expected tail: `16 persistence checks passed`.
+Expected tail: `17 persistence checks passed`.
 
 ---
 
@@ -380,6 +380,16 @@ words for the same person.
   room was a zombie until its idle sweep removed it. `hostUserId` is what the returning
   owner is matched against, and it moves with an explicit `transfer_host`, so handing the
   room over really is handing it over.
+- **Pressing Leave hands the room over on the spot.** `removeParticipant()` runs
+  `ensureHost()`, so the longest-tenured survivor is Host before the `user_left` broadcast is
+  even assembled, and that broadcast already carries the new roster. The promoted person also
+  gets a full `room_state`, and every roster-carrying event refreshes the client's own `me` —
+  capabilities are read from there, so their controls are live on the same beat the toast says
+  "Host left — you took over", with no reload. Tenure is the rule, not rank: a Moderator who
+  arrived later does not leapfrog someone who has been there since the room opened. And a
+  returning former Host does **not** reclaim it — a tab shut for two seconds must not silently
+  demote whoever has been running the party since. All of that is asserted in `npm run verify`
+  (check 16, eight assertions).
 - A departing socket leaves the room *for real*. `enter()` used to unbind the socket from
   the old room's broadcast channel while leaving its `Participant` in that room's roster —
   a ghost that inflated the headcount, kept the room from ever reading as empty, and could
@@ -642,7 +652,7 @@ server/src/
   utils/            roomCode (unambiguous alphabet), youtube (URL → id), sanitize
   models/Room.js    Mongoose schema — the shape of `watch_party.rooms`
   db/mongo.js       real adapter + no-op in-memory adapter
-  scripts/          verify-rbac.js (39 checks), verify-persistence.js (16 checks)
+  scripts/          verify-rbac.js (47 checks), verify-persistence.js (17 checks)
 
 client/src/
   types.ts          ← the wire contract, both directions
