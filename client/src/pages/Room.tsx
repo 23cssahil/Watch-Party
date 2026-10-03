@@ -135,9 +135,7 @@ export default function Room() {
     <main className="room">
       <header className="room__bar">
         <Link to="/" className="room__brand" aria-label="Watch Party home">
-          <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden>
-            <path d="M11 7l14 9-14 9z" fill="currentColor" />
-          </svg>
+          <img src="/favicon.svg" alt="" width="22" height="22" />
           <span>Watch Party</span>
         </Link>
 

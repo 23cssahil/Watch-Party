@@ -142,9 +142,7 @@ export default function Home() {
 
       <header className="home__brand">
         <span className="logo-mark" aria-hidden>
-          <svg viewBox="0 0 32 32" width="28" height="28">
-            <path d="M11 7l14 9-14 9z" fill="currentColor" />
-          </svg>
+          <img src="/favicon.svg" alt="" width="48" height="48" />
         </span>
         <div>
           <h1>Watch Party</h1>
