@@ -1,5 +1,4 @@
 import { getIdentity, rememberUsername, socket } from './socket';
-import { useRoomStore } from './store/roomStore';
 import type { ApprovalRequest, PlaybackAction, Role } from './types';
 
 /**
@@ -56,7 +55,6 @@ export function joinRoom(
 
 export function leaveRoom(): void {
   socket.emit('leave_room');
-  useRoomStore.getState().reset();
 }
 
 // --------------------------------------------------------------- playback

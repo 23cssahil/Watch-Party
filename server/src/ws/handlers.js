@@ -100,6 +100,7 @@ class MessageHandler {
    * @param {string} [code]
    */
   deny(socket, message, code = 'forbidden') {
+    if (code === 'no_room' && !socket.data.roomId) return;
     socket.emit('room_error', { message, code, at: Date.now() });
   }
 
