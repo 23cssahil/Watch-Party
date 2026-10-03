@@ -3,6 +3,21 @@ const config = require('../config');
 const WatchRoom = require('../models/Room');
 
 /**
+ * Strip credentials out of a driver error string before it reaches the log.
+ *
+ * `MONGODB_URI` is a password, and a log line is the one place a secret gets
+ * copied from without anyone meaning to. Only the `authority` part of a
+ * `scheme://user:pass@host` string is touched, so the host names that actually
+ * help debugging stay readable.
+ *
+ * @param {string} message
+ * @returns {string}
+ */
+function redact(message) {
+  return String(message).replace(/:\/\/[^\s/@]+@/g, '://[credential-redacted]@');
+}
+
+/**
  * ---------------------------------------------------------------------------
  * Optional persistence layer.
  * ---------------------------------------------------------------------------
@@ -64,9 +79,13 @@ function createPersistence() {
         // must not take the WebSocket server down with it. The name of the most
         // likely cause is printed, because that is the line worth reading in a
         // deploy log you are scanning once.
+        //
+        // The message is scrubbed first. A driver error can quote the connection
+        // string back, and deploy logs are read by more people than a secret
+        // should be shared with — `user:password@` never leaves this process.
         console.error(
           '[persistence] MongoDB unavailable, running in-memory for now:',
-          error.message,
+          redact(error.message),
           '| if this is a deployed instance, check Atlas -> Network Access allows this host'
         );
         return false;
@@ -101,7 +120,7 @@ function createPersistence() {
             $max: { peakParticipants: room.peakSize },
           },
           { upsert: true, new: true }
-        ).catch((error) => console.warn('[persistence] write failed:', error.message));
+        ).catch((error) => console.warn('[persistence] write failed:', redact(error.message)));
       }, 2000);
       timer.unref?.();
       pending.set(room.id, timer);
@@ -127,7 +146,7 @@ function createPersistence() {
           createdAt: doc.createdAt,
         };
       } catch (error) {
-        console.warn('[persistence] read failed:', error.message);
+        console.warn('[persistence] read failed:', redact(error.message));
         return null;
       }
     },

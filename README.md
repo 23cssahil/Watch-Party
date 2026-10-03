@@ -198,6 +198,11 @@ and the credential has to be worth less than it looks.
      copied from the config (`db/mongo.js`). Without it, a deploy that silently lost its
      database looks identical to one that has it.
 
+One more thing the code does for you: a driver error can quote the connection string back, and
+people paste deploy logs into issues and screenshots. So every persistence log line goes through
+`redact()` in `db/mongo.js`, which replaces only the `://user:password@` part and leaves the host
+names — the actually useful half of the message — alone.
+
 ### Why a shared link can look dead — and what the app now does about it
 
 Three honest failure modes, the first two consequences of one free single-instance tier:
@@ -320,6 +325,18 @@ database, no clock — which is why it can be reasoned about and unit-tested in 
 | approve / dismiss requests | ✅ | ✅ | ❌ |
 
 ✅ executes · ❌ refused with a reason · 🟡 converted into an approval request
+
+**There are two gates, and only one of them is authoritative.** The server one is the real
+control: a hand-crafted `socket.emit('pause')` that never touches the UI still lands in
+`permissions.js` and is refused. The second is `.stage__click-blocker` in `VideoStage.tsx` — a
+transparent div over the YouTube iframe — and it exists because the embedded player has its *own*
+native centre play/pause button and scrub bar. A click on those goes straight into a cross-origin
+iframe and YouTube obeys it: a Participant could pause or drag everyone's video without emitting
+a single event, and the room would only discover the disagreement at the next heartbeat. With the
+frame non-interactive, the ControlBar is the only path to playback, and every path goes through
+the server. The app's own overlays (tap-to-join, error, reconnecting banner) are stacked above the
+blocker, so nothing that is supposed to be clickable stopped being clickable — the honest cost is
+YouTube's fullscreen button and double-click-to-fullscreen, which now do nothing.
 
 Three rules, and the ordering is the whole design:
 
