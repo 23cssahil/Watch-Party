@@ -47,6 +47,9 @@ function watch(socket) {
     'role_assigned',
     'participant_removed',
     'host_transferred',
+    // Watched only so a check can assert it did NOT arrive: a Host leaving must
+    // never look like the room was destroyed to the people still watching it.
+    'room_deleted',
     'request_received',
     'request_queue',
     'request_pending',
@@ -371,6 +374,18 @@ async function main() {
     'with exactly one host in the roster that was sent',
     (handed?.participants || []).filter((p) => p.role === 'host').length === 1
   );
+  check(
+    'and no survivor is told the room died',
+    !elder.recorder.has('room_deleted') && !latest.recorder.has('room_deleted')
+  );
+  const stillLive = await fetch(`${URL}/api/rooms/${throneRoom}`)
+    .then((response) => response.json())
+    .catch(() => null);
+  check(
+    'the room itself is still live for the people in it',
+    stillLive?.room?.live === true && stillLive?.room?.participants === 2,
+    `live: ${stillLive?.room?.live}, participants: ${stillLive?.room?.participants}`
+  );
 
   const elderState = (
     await elder.recorder.waitFor('room_state', 2500).catch(() => null)
@@ -411,6 +426,11 @@ async function main() {
 
   console.log(results.join('\n'));
   console.log(`\n  ${results.length - failures}/${results.length} checks passed\n`);
+  // Exit is deliberate (a lingering socket would otherwise keep the process up),
+  // but not *immediately*: killing the process while the HTTP keep-alive handle
+  // from the room-preview probes is still closing trips a libuv assertion on
+  // Windows, which prints a crash after a green run and reports a failed suite.
+  await wait(500);
   process.exit(failures ? 1 : 0);
 }
 

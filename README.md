@@ -79,7 +79,7 @@ npm run verify
 ```
 
 This drives **two real Socket.IO clients** against a running server and asserts on the
-events they receive — 47 checks, going through the same wire path a browser uses. It
+events they receive — 49 checks, going through the same wire path a browser uses. It
 covers the adversarial cases rather than the happy path:
 
 - a client that *claims* `role: 'host'` in its join payload still joins as a participant
@@ -90,7 +90,7 @@ covers the adversarial cases rather than the happy path:
 - a `join_room` for a code that does not exist is *answered* with a reason, never dropped
   (this is the acknowledgement the share-link screen depends on)
 
-Expected tail: `47/47 checks passed`.
+Expected tail: `49/49 checks passed`.
 
 If you set `MONGODB_URI`, there is a second suite for the database itself:
 
@@ -389,7 +389,12 @@ words for the same person.
   arrived later does not leapfrog someone who has been there since the room opened. And a
   returning former Host does **not** reclaim it — a tab shut for two seconds must not silently
   demote whoever has been running the party since. All of that is asserted in `npm run verify`
-  (check 16, eight assertions).
+  (check 16, ten assertions). An earlier revision instead closed the room on Host leave and
+  broadcast `room_deleted` ("the host ended the party") — which contradicted the handover
+  happening one line later and turned one person's bathroom break into an unrecoverable dead
+  share link. `room_deleted` is therefore *reserved*: still in the wire contract for a
+  deliberate End-party action the UI does not offer yet, emitted by nothing today, and a
+  regression check asserts no survivor receives it when the Host leaves.
 - A departing socket leaves the room *for real*. `enter()` used to unbind the socket from
   the old room's broadcast channel while leaving its `Participant` in that room's roster —
   a ghost that inflated the headcount, kept the room from ever reading as empty, and could
@@ -652,7 +657,7 @@ server/src/
   utils/            roomCode (unambiguous alphabet), youtube (URL → id), sanitize
   models/Room.js    Mongoose schema — the shape of `watch_party.rooms`
   db/mongo.js       real adapter + no-op in-memory adapter
-  scripts/          verify-rbac.js (47 checks), verify-persistence.js (17 checks)
+  scripts/          verify-rbac.js (49 checks), verify-persistence.js (17 checks)
 
 client/src/
   types.ts          ← the wire contract, both directions

@@ -286,22 +286,24 @@ class MessageHandler {
     }
   }
 
+  /**
+   * Pressing Leave is a *departure*, not a demolition.
+   *
+   * An earlier revision closed the room here and told everyone else "the host
+   * ended the party". That was wrong twice over. It contradicted what actually
+   * happened one line later — `exit()` promotes the longest-tenured survivor,
+   * so the room was alive with a new Host while its viewers were being shown a
+   * dead-room screen. And it made one person's bathroom break the end of
+   * everyone's party, with no way back: the room code people had shared would be
+   * a lie, and a Host cannot re-mint a room that has been dropped.
+   *
+   * So the host leaving hands the room over (§5). `room_deleted` is left in the
+   * contract for a deliberate End-party action, which the UI does not offer yet.
+   */
   leaveRoom(socket) {
     const ctx = this.context(socket);
     if (!ctx) return;
-    const { room, me } = ctx;
-
-    // When the host explicitly clicks "Leave", close the room entirely.
-    // Every remaining viewer gets a `room_deleted` event so they can show
-    // a proper "Host ended the party" screen instead of a generic error.
-    if (me.isHost && room.size > 1) {
-      this.io.to(room.id).except(socket.id).emit('room_deleted', {
-        roomId: room.id,
-        message: 'The host ended the party.',
-      });
-    }
-
-    this.exit(socket, room, 'left');
+    this.exit(socket, ctx.room, 'left');
   }
 
   /**

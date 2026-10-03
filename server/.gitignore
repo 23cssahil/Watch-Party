@@ -8,3 +8,4 @@ node_modules/
 
 # Copied client bundle in the Render deploy layout (created by the build step)
 client-dist/
+*.out

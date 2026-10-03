@@ -243,8 +243,11 @@ export function useSocket(): void {
       store.getState().setRemoved({ by, reason });
     };
 
-    // Host explicitly ended the party — tell every remaining viewer via a
-    // dedicated event so they get a clean "room not found" screen on retry.
+    // Reserved for a deliberate "end the party for everyone" action, which the
+    // server does not send today: a Host pressing Leave hands the room to the
+    // longest-tenured survivor instead (§5 of the README), so viewers are never
+    // told the room died while it is still playing. Kept wired up because the
+    // event is in the contract, and the handling is the correct one if it arrives.
     const onRoomDeleted = ({ message }: { roomId: string; message: string }) => {
       store.getState().reset();
       store.getState().setJoinError(message || 'The host ended the party.');
