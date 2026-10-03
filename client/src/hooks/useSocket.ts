@@ -1,0 +1,268 @@
+import { useEffect, useRef } from 'react';
+import { getIdentity, socket } from '../socket';
+import { expectedPosition, useRoomStore } from '../store/roomStore';
+import type {
+  ChatPayload,
+  HostTransferredPayload,
+  ParticipantRemovedPayload,
+  ReactionPayload,
+  RemovedPayload,
+  RequestExpiredPayload,
+  RequestPendingPayload,
+  RequestQueuePayload,
+  RequestReceivedPayload,
+  RequestResolvedPayload,
+  RoleAssignedPayload,
+  RoomErrorPayload,
+  RoomSnapshot,
+  SyncState,
+  UserJoinedPayload,
+  UserLeftPayload,
+} from '../types';
+
+/**
+ * ---------------------------------------------------------------------------
+ * The inbound half of the realtime layer.
+ * ---------------------------------------------------------------------------
+ *
+ * Every server event is folded into the store from one place, so there is a
+ * single answer to "what happens when the host seeks?" — and it is in this file.
+ * Outbound actions live in `actions.ts` instead; keeping them apart is what lets
+ * this hook stay a strict singleton (calling it twice would double every
+ * listener, and each event would be applied twice).
+ *
+ * The client **never** decides whether it is allowed to do something. It emits
+ * the real intent (`play`, `seek`, `change_video`) and the server's permission
+ * gate replies with either `sync_state` (applied) or `request_pending`
+ * (escalated to the Host). If the rules were mirrored here, promoting someone
+ * to Moderator would need matching code in every open browser tab, and any
+ * drift between the two rule sets would be a security hole. As written, a role
+ * change is one broadcast and nothing else.
+ *
+ * Call exactly once, from `App`.
+ */
+export function useSocket(): void {
+  const store = useRoomStore;
+  // Distinguishes a first connection from a recovery, so we only re-claim a
+  // seat after an actual drop rather than on the initial page load.
+  const hasConnectedOnce = useRef(false);
+
+  useEffect(() => {
+    const onConnect = () => {
+      const transport = socket.io.engine?.transport?.name ?? 'unknown';
+      store.getState().setStatus('connected', transport);
+
+      const { roomId, me } = store.getState();
+      if (roomId && me && hasConnectedOnce.current) {
+        // Reconnect: rejoin with the *same* userId. The server keys people by
+        // userId rather than socket id, which is what lets a Host keep their
+        // role across a dropped connection instead of rejoining as a viewer.
+        socket.emit('join_room', {
+          roomId,
+          username: me.username,
+          userId: getIdentity().userId,
+        });
+      }
+      hasConnectedOnce.current = true;
+    };
+
+    const onDisconnect = (reason: string) => {
+      store.getState().setStatus('disconnected');
+      if (reason !== 'io client disconnect') {
+        store.getState().pushToast('Connection lost — reconnecting…', 'warn');
+      }
+    };
+
+    const onRoomState = (snapshot: RoomSnapshot) => store.getState().applySnapshot(snapshot);
+
+    const onSyncState = (sync: SyncState) => {
+      const previousVideo = store.getState().sync?.videoId;
+      const previousPosition = expectedPosition(store.getState());
+      store.getState().applySync(sync);
+
+      // Attribute the change to a person, but stay quiet about our own presses
+      // and about the 5-second heartbeat that only exists to correct drift.
+      if (sync.source === 'heartbeat' || sync.source === 'snapshot') return;
+      if (!sync.actor || sync.actor.userId === store.getState().me?.userId) return;
+
+      store.getState().pushToast(
+        sync.source === 'approved_request'
+          ? `${sync.actor.username}'s request was approved`
+          : `${sync.actor.username} ${describeSync(sync, previousVideo, previousPosition)}`,
+        'info'
+      );
+    };
+
+    const onUserJoined = ({ participants, username, userId }: UserJoinedPayload) => {
+      store.getState().setHostFromList(participants);
+      if (userId !== store.getState().me?.userId) {
+        store.getState().pushToast(`${username} joined the room`, 'info');
+      }
+    };
+
+    const onUserLeft = ({ participants, username, userId }: UserLeftPayload) => {
+      store.getState().setHostFromList(participants);
+      if (userId !== store.getState().me?.userId) {
+        store.getState().pushToast(`${username} left the room`, 'info');
+      }
+    };
+
+    const onRoleAssigned = ({
+      participants,
+      userId,
+      role,
+      username,
+      assignedBy,
+    }: RoleAssignedPayload) => {
+      store.getState().setHostFromList(participants);
+      if (userId === store.getState().me?.userId) {
+        store.getState().pushToast(`You are now ${role} (set by ${assignedBy})`, 'success');
+      } else {
+        store.getState().pushToast(`${username} is now ${role}`, 'info');
+      }
+    };
+
+    const onHostTransferred = ({ participants, username, automatic }: HostTransferredPayload) => {
+      store.getState().setHostFromList(participants);
+      store.getState().pushToast(
+        automatic ? `Host left — ${username} took over` : `${username} is the new host`,
+        'success'
+      );
+    };
+
+    const onParticipantRemoved = ({
+      participants,
+      username,
+      userId,
+      reason,
+    }: ParticipantRemovedPayload) => {
+      store.getState().setHostFromList(participants);
+      if (userId !== store.getState().me?.userId) {
+        store.getState().pushToast(
+          reason === 'removed' ? `${username} was removed by the host` : `${username} left`,
+          'info'
+        );
+      }
+    };
+
+    const onRequestReceived = ({ requests }: RequestReceivedPayload) =>
+      store.getState().setRequests(requests);
+
+    const onRequestQueue = ({ requests }: RequestQueuePayload) =>
+      store.getState().setRequests(requests);
+
+    const onRequestPending = ({ request }: RequestPendingPayload) => {
+      const state = store.getState();
+      state.addMyPending(request);
+      state.pushToast(`Asked the host to ${describeAction(request.action)} — waiting…`, 'info');
+    };
+
+    const onRequestResolved = ({ request, approved, resolvedBy }: RequestResolvedPayload) => {
+      const state = store.getState();
+      state.dropRequest(request.id);
+      state.clearMyPending(request.id);
+      if (request.userId === state.me?.userId) {
+        state.pushToast(
+          approved
+            ? `${resolvedBy.username} approved your request`
+            : `${resolvedBy.username} declined your request`,
+          approved ? 'success' : 'warn'
+        );
+      }
+    };
+
+    const onRequestExpired = ({ request }: RequestExpiredPayload) => {
+      const state = store.getState();
+      state.dropRequest(request.id);
+      state.clearMyPending(request.id);
+      if (request.userId === state.me?.userId) {
+        state.pushToast('Your request expired before anyone approved it', 'warn');
+      }
+    };
+
+    const onChat = ({ message }: ChatPayload) => store.getState().addChat(message);
+
+    const onReaction = ({ emoji, username }: ReactionPayload) =>
+      store.getState().pushReaction({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        emoji,
+        username,
+      });
+
+    const onRemoved = ({ by, reason }: RemovedPayload) => {
+      // A distinct state, not just "left": the Room page swaps to a locked
+      // screen so the user cannot silently rejoin the room they were kicked from.
+      store.getState().setRemoved({ by, reason });
+    };
+
+    const onError = ({ message }: RoomErrorPayload) => store.getState().pushToast(message, 'error');
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('room_state', onRoomState);
+    socket.on('sync_state', onSyncState);
+    socket.on('user_joined', onUserJoined);
+    socket.on('user_left', onUserLeft);
+    socket.on('role_assigned', onRoleAssigned);
+    socket.on('host_transferred', onHostTransferred);
+    socket.on('participant_removed', onParticipantRemoved);
+    socket.on('request_received', onRequestReceived);
+    socket.on('request_queue', onRequestQueue);
+    socket.on('request_pending', onRequestPending);
+    socket.on('request_resolved', onRequestResolved);
+    socket.on('request_expired', onRequestExpired);
+    socket.on('chat_message', onChat);
+    socket.on('reaction', onReaction);
+    socket.on('removed_from_room', onRemoved);
+    socket.on('room_error', onError);
+
+    store.getState().setStatus(socket.connected ? 'connected' : 'connecting');
+
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('room_state', onRoomState);
+      socket.off('sync_state', onSyncState);
+      socket.off('user_joined', onUserJoined);
+      socket.off('user_left', onUserLeft);
+      socket.off('role_assigned', onRoleAssigned);
+      socket.off('host_transferred', onHostTransferred);
+      socket.off('participant_removed', onParticipantRemoved);
+      socket.off('request_received', onRequestReceived);
+      socket.off('request_queue', onRequestQueue);
+      socket.off('request_pending', onRequestPending);
+      socket.off('request_resolved', onRequestResolved);
+      socket.off('request_expired', onRequestExpired);
+      socket.off('chat_message', onChat);
+      socket.off('reaction', onReaction);
+      socket.off('removed_from_room', onRemoved);
+      socket.off('room_error', onError);
+    };
+  }, [store]);
+}
+
+/** "Host paused the room" — the verb is chosen from what actually changed. */
+function describeSync(
+  sync: SyncState,
+  previousVideoId: string | undefined,
+  previousPosition: number
+): string {
+  if (previousVideoId && previousVideoId !== sync.videoId) return 'changed the video';
+  if (Math.abs(sync.position - previousPosition) > 2) return 'moved the playback position';
+  return sync.isPlaying ? 'started playback' : 'paused the video';
+}
+
+function describeAction(action: string): string {
+  switch (action) {
+    case 'play':
+      return 'resume playback';
+    case 'pause':
+      return 'pause the video';
+    case 'seek':
+      return 'jump to another time';
+    case 'change_video':
+      return 'change the video';
+    default:
+      return action;
+  }
+}
