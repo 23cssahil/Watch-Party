@@ -79,7 +79,7 @@ npm run verify
 ```
 
 This drives **two real Socket.IO clients** against a running server and asserts on the
-events they receive — 49 checks, going through the same wire path a browser uses. It
+events they receive — 53 checks, going through the same wire path a browser uses. It
 covers the adversarial cases rather than the happy path:
 
 - a client that *claims* `role: 'host'` in its join payload still joins as a participant
@@ -89,8 +89,10 @@ covers the adversarial cases rather than the happy path:
 - after promotion, that same Participant's `play` executes directly with no request
 - a `join_room` for a code that does not exist is *answered* with a reason, never dropped
   (this is the acknowledgement the share-link screen depends on)
+- a page **refresh** rebinds the same seat and keeps its Host — the lagging old socket's
+  disconnect must never fire a bogus host succession (a reload is not a departure)
 
-Expected tail: `49/49 checks passed`.
+Expected tail: `53/53 checks passed`.
 
 If you set `MONGODB_URI`, there is a second suite for the database itself:
 
@@ -395,6 +397,16 @@ words for the same person.
   share link. `room_deleted` is therefore *reserved*: still in the wire contract for a
   deliberate End-party action the UI does not offer yet, emitted by nothing today, and a
   regression check asserts no survivor receives it when the Host leaves.
+- **A page refresh is not a departure, and must not transfer the Host.** A reload opens a
+  new connection that rebinds the *same* `userId` back onto its own seat (keeping the role),
+  but the browser only reaps the old connection a moment later — so the stale socket's
+  `disconnect` arrives *after* the rebind. Evicting a seat by `userId` alone in that window
+  deleted the live Host and fired a bogus `host_transferred`: a viewer would get "Host left
+  — you are the Host" from nothing but a reload, while the reloaded Host still thought it ran
+  the room. `exit()` now only removes a seat when the disconnecting socket is still the one
+  bound to it; a stale disconnect unhooks itself and changes nothing (asserted in
+  `npm run verify`, check 17). This is distinct from the returning-former-Host case above:
+  there the person genuinely left and another had to inherit; here they never left at all.
 - A departing socket leaves the room *for real*. `enter()` used to unbind the socket from
   the old room's broadcast channel while leaving its `Participant` in that room's roster —
   a ghost that inflated the headcount, kept the room from ever reading as empty, and could
@@ -657,7 +669,7 @@ server/src/
   utils/            roomCode (unambiguous alphabet), youtube (URL → id), sanitize
   models/Room.js    Mongoose schema — the shape of `watch_party.rooms`
   db/mongo.js       real adapter + no-op in-memory adapter
-  scripts/          verify-rbac.js (49 checks), verify-persistence.js (17 checks)
+  scripts/          verify-rbac.js (53 checks), verify-persistence.js (17 checks)
 
 client/src/
   types.ts          ← the wire contract, both directions

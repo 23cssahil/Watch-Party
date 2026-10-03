@@ -421,6 +421,47 @@ async function main() {
   elder.socket.close();
   latest.socket.close();
 
+  // 17. Regression guard for the refresh that used to hand the room to a viewer.
+  //     Reloading a page is not a departure. The browser opens a new socket that
+  //     rebinds the same userId while the old connection lingers, and the old
+  //     socket's disconnect lands *after* the rebind. Evicting by userId alone in
+  //     that window deleted the live Host seat and fired a bogus succession - the
+  //     viewer would pop "you are the host" while the reloaded Host kept playing.
+  const kingA = connect('King', 'user-king-refresh');
+  kingA.socket.emit('create_room', { username: 'King', userId: 'user-king-refresh' });
+  const refreshRoom = (await kingA.recorder.waitFor('room_state')).payload.roomId;
+
+  const peer = connect('Peer', 'user-peer-refresh');
+  peer.socket.emit('join_room', { roomId: refreshRoom, username: 'Peer', userId: 'user-peer-refresh' });
+  await peer.recorder.waitFor('room_state');
+
+  // The refresh itself: a second socket for the same person, the first still open.
+  const kingB = connect('King', 'user-king-refresh');
+  kingB.socket.emit('join_room', { roomId: refreshRoom, username: 'King', userId: 'user-king-refresh' });
+  const rebound = (await kingB.recorder.waitFor('room_state')).payload;
+  check('a refresh rebinds the seat and keeps the Host', rebound.me.role === 'host', rebound.me.role);
+
+  peer.recorder.received.length = 0;
+  kingA.socket.close(); // the lagging pre-refresh socket is finally reaped
+  await wait(600);
+  check(
+    'a stale disconnect from the pre-refresh socket never transfers the host',
+    !peer.recorder.has('host_transferred')
+  );
+
+  kingB.recorder.received.length = 0;
+  kingB.socket.emit('play');
+  const refreshedHostCanPlay = await kingB.recorder
+    .waitFor('sync_state', 2000)
+    .then(() => true)
+    .catch(() => false);
+  check('the refreshed Host keeps working playback authority', refreshedHostCanPlay);
+  check('and is never told its own seat expired', !kingB.recorder.has('room_error'));
+
+  kingA.socket.close();
+  kingB.socket.close();
+  peer.socket.close();
+
   host.socket.close();
   guest.socket.close();
 

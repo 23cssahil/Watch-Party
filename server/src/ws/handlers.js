@@ -314,6 +314,21 @@ class MessageHandler {
   exit(socket, room, reason) {
     const userId = socket.data.userId;
     this.clearPendingSeek(socket);
+
+    // Only evict the seat if this socket still backs it. A page refresh opens a
+    // new connection that rebinds the *same* userId before the browser reaps the
+    // old one, so the departing socket is frequently no longer the seat's owner.
+    // Removing by userId alone in that window deletes the live, rebound seat and
+    // fires a bogus host succession — a mere reload handing the room to whoever
+    // joined next. A stale disconnect must unhook itself and change nothing else.
+    const seat = userId ? room.getParticipant(userId) : null;
+    if (seat && seat.socketId !== socket.id) {
+      socket.leave(room.id);
+      socket.data.roomId = null;
+      socket.data.userId = null;
+      return;
+    }
+
     const leaving = room.removeParticipant(userId);
     socket.leave(room.id);
     socket.data.roomId = null;
