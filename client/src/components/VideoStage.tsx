@@ -23,6 +23,17 @@ export default function VideoStage() {
       <div className="stage__frame">
         <div ref={containerRef} className="stage__player" />
 
+        {/*
+          Transparent blocker sitting on top of the YouTube iframe.
+          Purpose: YouTube's IFrame renders its own native center play/pause
+          button inside the iframe. Without this overlay a Participant can click
+          that button and the click goes directly into the iframe — completely
+          bypassing our server-side permission gate. The blocker intercepts every
+          pointer event on the video area. Our own overlays (gesture, error,
+          banner) sit above this div via z-index and remain fully clickable.
+        */}
+        <div className="stage__click-blocker" aria-hidden="true" />
+
         {!player.ready && !player.error && (
           <div className="stage__overlay">
             <span className="spinner" />

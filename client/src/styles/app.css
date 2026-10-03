@@ -530,9 +530,25 @@ a {
   opacity: 0.5;
 }
 
+/*
+  Transparent div that sits directly above the YouTube iframe.
+  This blocks all pointer events reaching the iframe so that
+  YouTube's native center play/pause button cannot be clicked by
+  any user (Host, Participant, or Moderator alike). All actual
+  playback control goes through ControlBar → socket → server gate.
+  z-index 1 keeps it below our own overlays (z-index 2+).
+*/
+.stage__click-blocker {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  cursor: default;
+}
+
 .stage__overlay {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: grid;
   place-content: center;
   justify-items: center;
@@ -571,12 +587,12 @@ a {
   font-size: 12px;
   max-width: 40ch;
 }
-
 .stage__banner {
   position: absolute;
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
+  z-index: 3;
   background: rgba(255, 165, 2, 0.16);
   border: 1px solid rgba(255, 165, 2, 0.4);
   color: #ffd27d;
