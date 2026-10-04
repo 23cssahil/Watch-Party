@@ -112,6 +112,11 @@ function createPersistence() {
               durationSec: Math.round(room.state.duration * 1000) / 1000,
               hostUserId: host ? host.userId : '',
               hostName: host ? host.username : '',
+              // The conversation rides along with the metadata write. It is already
+              // capped to the last 120 lines in Room.chatLog, so this cannot turn a
+              // busy room into an unbounded document, and the 2 s debounce keeps a
+              // chat burst to a handful of writes rather than one per message.
+              chat: room.chatLog,
               lastActiveAt: new Date(),
             },
             // `$max` rather than `$set`: the peak is a fact about history, so a
@@ -143,6 +148,7 @@ function createPersistence() {
           duration: Number(doc.durationSec) || 0,
           hostUserId: doc.hostUserId || '',
           peakParticipants: Number(doc.peakParticipants) || 0,
+          chat: Array.isArray(doc.chat) ? doc.chat.slice(-120) : [],
           createdAt: doc.createdAt,
         };
       } catch (error) {

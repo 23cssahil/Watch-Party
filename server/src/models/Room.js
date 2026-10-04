@@ -18,11 +18,12 @@ const mongoose = require('mongoose');
  *  - `durationSec`     so a restored room can clamp a seek immediately
  *  - `hostUserId`      whose room this is, so the owner who reloads or comes back
  *                      after a restart is met by the room as its Host. It records
- *                      ownership only: the roster, the roles held by other people
- *                      and the chat are live socket state and are deliberately not
- *                      stored (README §5, §8).
+ *                      ownership only: the roster and the live roles are socket
+ *                      state and are deliberately not stored (README §5, §8).
  *  - `peakParticipants` how big the party ever got
  *  - `lastActiveAt`    drives the TTL below, and answers "is this alive?"
+ *  - `chat`            the last messages, so a restored room reopens with its
+ *                      conversation intact instead of an empty chat panel
  */
 const RoomSchema = new mongoose.Schema(
   {
@@ -37,6 +38,24 @@ const RoomSchema = new mongoose.Schema(
     hostName: { type: String, default: '', maxlength: 24 },
     peakParticipants: { type: Number, default: 0, min: 0 },
     lastActiveAt: { type: Date, default: Date.now },
+    // The conversation, kept so a room that outlives a restart still shows what
+    // was said. Capped on write (Room.chatLog holds the last 120); every line is
+    // already sanitised at the wire boundary, and each field is bounded here so
+    // one document cannot grow without limit.
+    chat: {
+      type: [
+        {
+          _id: false,
+          id: String,
+          userId: { type: String, maxlength: 64 },
+          username: { type: String, maxlength: 24 },
+          role: { type: String, maxlength: 20 },
+          text: { type: String, maxlength: 500 },
+          at: Number,
+        },
+      ],
+      default: [],
+    },
   },
   // An explicit collection name, so what appears in Atlas is `watch_party.rooms`
   // rather than a pluralisation of the model name guessing at it.

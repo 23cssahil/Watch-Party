@@ -110,7 +110,7 @@ it created (`npm run verify` is not so surgical: against a database-enabled serv
 a test row or two behind, which the TTL ages out after 7 days), and exits 0 with a note when
 no database is configured.
 
-Expected tail: `17 persistence checks passed`.
+Expected tail: `20 persistence checks passed`.
 
 ---
 
@@ -222,9 +222,10 @@ had nowhere to go; it is now stored as `joinError` and rendered. And because `MO
 is set on the deployed service, `RoomManager.getOrRestore()` rebuilds the room from the
 `watch_party.rooms` document on the first join after a restart (paused, never auto-resumed
 into a room of strangers), so a link shared an hour ago still opens the same video at the
-same position. What a restart does still lose is the people: the roster, the roles and the
-chat are live socket state and are deliberately not persisted — §8 explains why storing
-them would only create lies to reload later.
+same position. What a restart does still lose is the people: the roster and the live roles
+are socket state and are deliberately not persisted — §8 explains why storing them would
+only create lies to reload later. The chat log, by contrast, *is* stored, so a reopened party
+still shows what was said.
 
 For a demo, pointing any free uptime checker at `/health` every 5 minutes keeps the instance
 awake and the links instant. That is an operational trick, deliberately not app code: a
@@ -564,18 +565,24 @@ cluster, and the in-memory path is the same one the RBAC tests exercise. With it
 `watch_party.rooms` holds one document per party: `roomId` (unique, and the only key the app
 queries by), `videoId` — validated on write against the 11-character shape, because a
 malformed row would restore a room whose player can never load anything — plus `title`,
-`currentTime`, `durationSec`, `hostUserId`/`hostName`, `peakParticipants`, `lastActiveAt` and
-Mongoose timestamps. A TTL index on `lastActiveAt` deletes anything untouched for 7 days; every
+`currentTime`, `durationSec`, `hostUserId`/`hostName`, `peakParticipants`, `lastActiveAt`, a
+capped `chat` log and Mongoose timestamps. A TTL index on `lastActiveAt` deletes anything untouched for 7 days; every
 write refreshes that field, so a party people are still watching is never aged out.
 
-**What is deliberately *not* stored, and why.** Live socket state — who is connected, whose
-seat is waiting on approval, the chat log — is meaningless the moment the process dies, so
+**What is deliberately *not* stored, and why.** Live socket state — who is connected and
+whose seat is waiting on approval — is meaningless the moment the process dies, so
 persisting it would only create lies to reload later. Authority is the sharpest case: the Host
 role is minted by being the first person into an empty room (`Room.addParticipant`), and no
 document can know that whoever owned a room yesterday still owns it. A restored room is
-therefore a *fresh* room with the same video and position, and whoever walks in first runs it.
-`hostUserId` is recorded as metadata for the share-link preview, not as a claim on the next
-session.
+therefore a *fresh* room with the same video, position and chat, and whoever walks in first
+runs it. `hostUserId` is recorded as metadata for the share-link preview, not as a claim on the
+next session.
+
+**Chat is the one piece of "live" state that *is* stored.** The conversation is genuine content
+people come back to, so `watch_party.rooms.chat` keeps the last 120 messages — each already
+sanitised at the wire boundary, reloaded into `Room.chatLog` on restore — so a reopened party
+shows what was said instead of an empty panel. It rides the same debounced write as the
+metadata, so a burst of messages costs a handful of writes rather than one per line.
 
 Writes are debounced 2 s per room, because a scrubber drag emits dozens of positions and only
 the last one deserves a round trip, and they are fire-and-forget from the broadcast path so a

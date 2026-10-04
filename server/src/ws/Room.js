@@ -641,6 +641,10 @@ class Room {
     this.chatLog.push(message);
     if (this.chatLog.length > 120) this.chatLog.shift();
     this.touch();
+    // Chat is durable now: schedule the debounced write so the conversation
+    // survives a restart. The 2 s debounce (db/mongo.js) coalesces a burst of
+    // messages into a single write rather than one per line.
+    this.markDirty();
     return message;
   }
 

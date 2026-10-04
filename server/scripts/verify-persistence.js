@@ -78,6 +78,11 @@ async function main() {
       title: 'Big Buck Bunny 60fps 4K — Official Blender Open Movie <script>',
     });
 
+    // A chat line, to prove the conversation is persisted too — not just the
+    // playback metadata. Sent as the Host, who may chat. The markup in it must
+    // be stripped by the same wire-boundary sanitiser chat has always used.
+    socket.emit('chat_message', { text: 'persistence probe <b>hello</b>' });
+
     // The debounced write happens on a timer, so give it room to land.
     await wait(WRITE_ALLOWANCE_MS);
 
@@ -100,6 +105,21 @@ async function main() {
       check('the title is stored so an Atlas row reads like a room', title.includes('Big Buck Bunny'), title);
       check('and the markup in it was stripped before storage', !/[<>]/.test(title), title);
       check('the collection is named for the domain, not the model class', WatchRoom.collection.name === 'rooms', WatchRoom.collection.name);
+
+      // Chat is durable now: the message sent above must be readable straight out
+      // of the document, with its author intact and its markup sanitised away.
+      const chat = Array.isArray(doc.chat) ? doc.chat : [];
+      check('the chat log is stored so it survives a restart', chat.length >= 1, String(chat.length));
+      check(
+        'a stored chat line carries its author and text',
+        chat.some((m) => m.username === 'Persistence' && /hello/.test(m.text || '')),
+        chat[0]?.text
+      );
+      check(
+        'chat markup is sanitised before storage (no raw angle brackets)',
+        !/[<>]/.test(chat.map((m) => m.text).join('')),
+        chat[0]?.text
+      );
     }
 
     // ------------------------------------------------------- restore semantics

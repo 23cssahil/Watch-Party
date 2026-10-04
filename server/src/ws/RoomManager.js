@@ -98,6 +98,9 @@ class RoomManager {
     room.state.duration = Number(saved.duration) || 0;
     room.videoTitle = typeof saved.title === 'string' ? saved.title : '';
     room.peakSize = Number(saved.peakParticipants) || 0;
+    // The conversation is durable content, so a restored room reopens with its
+    // chat intact — the one piece of "live" state worth keeping across a restart.
+    room.chatLog = Array.isArray(saved.chat) ? saved.chat.slice(-120) : [];
     // Ownership, not authority. See the note on `Room.hostUserId`.
     room.hostUserId = typeof saved.hostUserId === 'string' ? saved.hostUserId : '';
     if (room.hostUserId) room.hostClaimed = true;
