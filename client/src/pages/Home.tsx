@@ -79,6 +79,12 @@ export default function Home() {
   const nameRef = useRef<HTMLInputElement>(null);
   const [nameAlert, setNameAlert] = useState(false);
 
+  // Same attention treatment for the room-code box: the Join button stays enabled
+  // even when the code is empty, and a press then rings + shakes this field
+  // (see `needCode`) instead of the button reading as dead.
+  const codeRef = useRef<HTMLInputElement>(null);
+  const [codeAlert, setCodeAlert] = useState(false);
+
   // The right-hand "Live rooms" directory: a polled, read-only list. Joining a
   // listed room reuses the single Display name field above — no second box. When
   // someone taps Join with no name yet, we remember which room they wanted
@@ -170,7 +176,7 @@ export default function Home() {
   const onJoin = (event: FormEvent) => {
     event.preventDefault();
     const target = code.trim().toUpperCase();
-    if (target.length < 4) return setError('That room code looks too short.');
+    if (target.length < 4) return needCode('Enter the room code first — then tap Join room.');
     // Each refusal states its own reason. This used to be a single silent
     // `if (!ready) return`, so a correct code typed while the socket was still
     // connecting — or before a name was filled in — did nothing at all, and the
@@ -193,6 +199,20 @@ export default function Home() {
     nameRef.current?.focus();
     nameRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     window.setTimeout(() => setNameAlert(false), 2600);
+  };
+
+  /**
+   * The room-code twin of `needName`: the Join button is no longer disabled on an
+   * empty code, so a press with nothing typed must still be *seen* — we scroll the
+   * code box into view, focus it and ring + shake it, the same cue the demo name
+   * field gives.
+   */
+  const needCode = (message: string) => {
+    setError(message);
+    setCodeAlert(true);
+    codeRef.current?.focus();
+    codeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => setCodeAlert(false), 2600);
   };
 
   /**
@@ -316,9 +336,10 @@ export default function Home() {
             <p className="pane__hint">Ask the host for their six-character code.</p>
 
             <form onSubmit={onJoin}>
-              <label className="field">
+              <label className={`field ${codeAlert ? 'field--alert' : ''}`}>
                 <span className="field__label">Room code</span>
                 <input
+                  ref={codeRef}
                   className="code-input"
                   value={code}
                   onChange={(event) => setCode(event.target.value.toUpperCase())}
@@ -328,7 +349,7 @@ export default function Home() {
                 />
               </label>
               <div className="pane__actions">
-                <button type="submit" className="btn btn--ghost" disabled={busy !== null || code.trim().length < 4}>
+                <button type="submit" className="btn btn--ghost" disabled={busy !== null}>
                   {queued === 'join' ? 'Waiting for the server…' : busy === 'join' ? 'Joining…' : 'Join room'}
                 </button>
                 <button
