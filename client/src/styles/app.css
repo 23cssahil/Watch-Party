@@ -517,6 +517,7 @@ a {
 /* ------------------------------------------------------------------ stage */
 
 .stage {
+  position: relative;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -526,6 +527,7 @@ a {
 }
 .stage__frame {
   position: relative;
+  z-index: 1;
   width: 100%;
   aspect-ratio: 16 / 9;
   max-height: calc(100vh - var(--bar-height) - 190px);
@@ -2190,7 +2192,7 @@ body {
   inset: 0;
   width: 100%;
   height: 100%;
-  z-index: 1;
+  z-index: 0;
   pointer-events: none;
 }
 .stage__beat {

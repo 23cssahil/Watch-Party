@@ -5,9 +5,10 @@ interface Props {
   active: boolean;
 }
 
-const BAR_COUNT = 56;
 const BPM = 122;
-const MAX_PARTICLES = 70;
+const MAX_PER_BANK = 22; // hard cap on how many bars fit on one side
+const MIN_SLOT = 7; // px a bar (plus its gap) needs to stay legible
+const MAX_PARTICLES = 80;
 
 interface Particle {
   x: number;
@@ -20,18 +21,23 @@ interface Particle {
 }
 
 /**
- * A synthetic, audio-free music visualiser.
+ * A synthetic, audio-free music visualiser that lives in the gutter.
  *
  * YouTube's player is a cross-origin iframe, so the Web Audio API can never read
  * its real frequencies — the browser blocks it by design. This canvas therefore
  * *models* a beat rather than detecting one: a fixed BPM drives a kick envelope,
- * and a few out-of-phase oscillators fill in a spectrum that looks alive. It is
- * gated on playback (bars rise while the video plays and settle the instant it
- * pauses), fully decorative — `pointer-events: none`, `aria-hidden` — and it does
- * not run at all under `prefers-reduced-motion`.
+ * and a few out-of-phase oscillators fill in a spectrum that looks alive.
  *
- * The animation loop parks itself once the energy has decayed to nothing, so an
- * idle or paused tab costs no CPU; flipping `active` back on wakes it instantly.
+ * Crucially the canvas is a sibling sitting *behind* the video frame, and every
+ * bar is drawn only inside the dark space to the left and right of the picture —
+ * never over it — so the viewer's screen stays unobstructed. The gutter width is
+ * measured live from the frame's own bounding box, which means the effect adapts
+ * to any window size and simply steps aside when there is no room beside it.
+ *
+ * Bubbles are released from the crest of a bar as the beat peaks and rise to the
+ * top of the video before dissolving there. It is fully decorative —
+ * `pointer-events: none`, `aria-hidden` — gated on playback, parks itself once
+ * the energy has decayed, and does not run at all under `prefers-reduced-motion`.
  */
 export default function BeatVisualizer({ active }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -52,9 +58,12 @@ export default function BeatVisualizer({ active }: Props) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const levels = new Float32Array(BAR_COUNT);
-    const barX = new Float32Array(BAR_COUNT);
-    const barTop = new Float32Array(BAR_COUNT);
+    // The canvas fills `.stage`; the video is the `.stage__frame` sitting on top
+    // of it. We read that frame's box each frame to know where the gutters are.
+    const stage = canvas.parentElement;
+    const frameEl = stage?.querySelector('.stage__frame') as HTMLElement | null;
+
+    const levels = new Float32Array(MAX_PER_BANK * 2);
     const particles: Particle[] = [];
     let energy = 0;
     let raf = 0;
@@ -71,9 +80,10 @@ export default function BeatVisualizer({ active }: Props) {
     };
     resize();
     const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
+    if (stage) ro.observe(stage);
+    if (frameEl) ro.observe(frameEl);
 
-    const frame = (now: number) => {
+    const tick = (now: number) => {
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
       const t = (now - clock) / 1000;
@@ -90,6 +100,24 @@ export default function BeatVisualizer({ active }: Props) {
         return;
       }
 
+      // Measure the video frame against the canvas to find the two side gutters
+      // and the vertical band the picture occupies. Everything is drawn inside
+      // those gutters so the video itself is never covered.
+      let gLeft = 0;
+      let gRight = 0;
+      let vTop = 0;
+      let vBot = h;
+      if (frameEl) {
+        const sr = canvas.getBoundingClientRect();
+        const fr = frameEl.getBoundingClientRect();
+        gLeft = fr.left - sr.left;
+        gRight = sr.right - fr.right;
+        vTop = fr.top - sr.top;
+        vBot = fr.bottom - sr.top;
+      }
+      const baseline = vBot;
+      const bankH = Math.max(24, vBot - vTop);
+
       const beatSec = 60 / BPM;
       const beatIndex = Math.floor(t / beatSec);
       const phase = (t % beatSec) / beatSec;
@@ -101,60 +129,74 @@ export default function BeatVisualizer({ active }: Props) {
       ctx.clearRect(0, 0, w, h);
       ctx.globalCompositeOperation = 'lighter';
 
-      // 1. Stage light — a warm radial bloom that swells on every kick.
-      const light = ctx.createRadialGradient(w / 2, h, 0, w / 2, h, h * 0.9);
-      light.addColorStop(0, `rgba(124, 92, 255, ${0.22 * glow})`);
-      light.addColorStop(0.5, `rgba(255, 71, 87, ${0.12 * glow})`);
-      light.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = light;
-      ctx.fillRect(0, 0, w, h);
+      // Crest points collected while drawing, reused as bubble spawn points.
+      const spawn: { x: number; y: number }[] = [];
 
-      // 2. Equalizer bars — split into two banks that flank an empty centre, so
-      //    the beats sit beside the video on the left and right instead of
-      //    stretching across it. Each bank arcs on its own for a lively shape.
-      const half = BAR_COUNT / 2;
-      const gapFrac = 0.4; // centre band kept clear for the picture
-      const bankW = (w * (1 - gapFrac)) / 2;
-      const slot = bankW / half;
-      const barMax = h * 0.44;
-      for (let i = 0; i < BAR_COUNT; i++) {
-        const a = 0.5 + 0.5 * Math.sin(t * (1.6 + i * 0.33) + i * 0.7);
-        const b = 0.5 + 0.5 * Math.sin(t * (0.6 + i * 0.11) + i * 1.7);
-        const idx = i < half ? i : i - half;
-        const tilt = 0.55 + 0.45 * Math.sin((idx / (half - 1)) * Math.PI); // arc per bank
-        let level = (0.2 + 0.85 * a * b) * (0.45 + 0.95 * kick * strong) * drop * tilt;
-        level = Math.min(1, level * energy);
-        levels[i] += (level - levels[i]) * 0.35;
-        const bh = Math.max(2, levels[i] * barMax);
-        const bankStart = i < half ? 0 : w - bankW;
-        const x = bankStart + idx * slot + slot * 0.18;
-        const barW = slot * 0.64;
-        const grad = ctx.createLinearGradient(0, h, 0, h - bh);
-        grad.addColorStop(0, `rgba(46, 213, 115, ${0.85 * energy})`);
-        grad.addColorStop(0.5, `rgba(124, 92, 255, ${0.9 * energy})`);
-        grad.addColorStop(1, `rgba(255, 71, 87, ${0.95 * energy})`);
-        ctx.fillStyle = grad;
-        traceBar(ctx, x, h - bh, barW, bh, Math.min(barW / 2, 3));
-        ctx.fill();
-        barX[i] = x + barW / 2; // crest centre, used as a bubble spawn point
-        barTop[i] = h - bh;
-      }
+      // A soft stage bloom, clipped to one gutter so it never lifts over the video.
+      const bloom = (cx: number, x0: number, gw: number) => {
+        if (gw < 10) return;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x0, vTop, gw, bankH);
+        ctx.clip();
+        const g = ctx.createRadialGradient(cx, baseline, 0, cx, baseline, bankH * 0.9);
+        g.addColorStop(0, `rgba(124, 92, 255, ${0.2 * glow})`);
+        g.addColorStop(0.5, `rgba(255, 71, 87, ${0.11 * glow})`);
+        g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x0, vTop, gw, bankH);
+        ctx.restore();
+      };
 
-      // 3. Bubbles — released from the crest of a bar as the beat peaks, then
-      //    they rise the full height of the stage and fade out at the top. No
-      //    gravity pulls them back, so a bubble always reaches the top instead
-      //    of stalling halfway.
+      // One bank of equaliser bars, growing up from the video's bottom edge and
+      // confined to [startX, startX + bankW]. The bar count adapts to the width.
+      const drawBank = (startX: number, bankW: number, base: number) => {
+        if (bankW < MIN_SLOT * 2) return; // no real room beside the video
+        const count = Math.max(3, Math.min(MAX_PER_BANK, Math.floor(bankW / MIN_SLOT)));
+        const slot = bankW / count;
+        const barMax = bankH * 0.5;
+        for (let j = 0; j < count; j++) {
+          const i = base + j;
+          const a = 0.5 + 0.5 * Math.sin(t * (1.6 + i * 0.33) + i * 0.7);
+          const b = 0.5 + 0.5 * Math.sin(t * (0.6 + i * 0.11) + i * 1.7);
+          const tilt = 0.55 + 0.45 * Math.sin((j / (count - 1)) * Math.PI); // arc per bank
+          let level = (0.2 + 0.85 * a * b) * (0.45 + 0.95 * kick * strong) * drop * tilt;
+          level = Math.min(1, level * energy);
+          levels[i] += (level - levels[i]) * 0.35;
+          const bh = Math.max(2, levels[i] * barMax);
+          const x = startX + j * slot + slot * 0.18;
+          const barW = slot * 0.64;
+          const grad = ctx.createLinearGradient(0, baseline, 0, baseline - bh);
+          grad.addColorStop(0, `rgba(46, 213, 115, ${0.85 * energy})`);
+          grad.addColorStop(0.5, `rgba(124, 92, 255, ${0.9 * energy})`);
+          grad.addColorStop(1, `rgba(255, 71, 87, ${0.95 * energy})`);
+          ctx.fillStyle = grad;
+          traceBar(ctx, x, baseline - bh, barW, bh, Math.min(barW / 2, 3));
+          ctx.fill();
+          spawn.push({ x: x + barW / 2, y: baseline - bh });
+        }
+      };
+
+      bloom(gLeft / 2, 0, gLeft);
+      bloom(w - gRight / 2, w - gRight, gRight);
+      drawBank(0, gLeft, 0);
+      drawBank(w - gRight, gRight, MAX_PER_BANK);
+
+      // Bubbles — released from the crest of a bar as the beat peaks, then they
+      // rise the full height of the picture and dissolve at its top edge. No
+      // gravity pulls them back, so a bubble always reaches the top instead of
+      // stalling halfway.
       if (beatIndex !== lastBeat) {
         lastBeat = beatIndex;
-        if (energy > 0.25 && particles.length < MAX_PARTICLES) {
+        if (energy > 0.25 && particles.length < MAX_PARTICLES && spawn.length) {
           const n = 2 + Math.floor(Math.random() * 3);
           for (let k = 0; k < n; k++) {
-            const src = Math.floor(Math.random() * BAR_COUNT);
+            const s = spawn[Math.floor(Math.random() * spawn.length)];
             particles.push({
-              x: barX[src],
-              y: barTop[src],
-              vx: (Math.random() - 0.5) * 0.05 * w,
-              vy: -(0.5 + Math.random() * 0.4) * h, // clears the top in ~1.4-2s
+              x: s.x,
+              y: s.y,
+              vx: (Math.random() - 0.5) * 0.04 * w,
+              vy: -(0.5 + Math.random() * 0.4) * bankH, // clears the top in ~1.4-2s
               r: 1.6 + Math.random() * 2.6,
               life: 1,
               hue: 265 + Math.random() * 70, // violet -> pink
@@ -168,26 +210,27 @@ export default function BeatVisualizer({ active }: Props) {
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.life -= dt * 0.4;
-        if (p.y < -p.r || p.life <= 0) {
+        if (p.y < vTop - p.r || p.life <= 0) {
           particles.splice(i, 1);
           continue;
         }
-        // Dissolve over the top ~22% so the bubble "disappears at the top".
-        const topFade = Math.max(0, Math.min(1, p.y / (h * 0.22)));
-        ctx.fillStyle = `hsla(${p.hue}, 95%, 68%, ${p.life * 0.9 * energy * topFade})`;
+        // Dissolve over the top ~22% of the picture so the bubble "disappears at
+        // the top" instead of popping mid-flight.
+        const fade = Math.max(0, Math.min(1, (p.y - vTop) / (bankH * 0.22)));
+        ctx.fillStyle = `hsla(${p.hue}, 95%, 68%, ${p.life * 0.9 * energy * fade})`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
         ctx.fill();
       }
 
       ctx.globalCompositeOperation = 'source-over';
-      raf = requestAnimationFrame(frame);
+      raf = requestAnimationFrame(tick);
     };
 
     const wake = () => {
       if (raf) return;
       clock = performance.now();
-      raf = requestAnimationFrame(frame);
+      raf = requestAnimationFrame(tick);
     };
     wakeRef.current = wake;
     wake();

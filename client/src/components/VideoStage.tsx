@@ -90,13 +90,17 @@ export default function VideoStage() {
 
   return (
     <section className="stage" ref={stageRef}>
+      {/*
+        Synthetic beat visualiser. It is a sibling that sits *behind* the video
+        frame (not inside it), so the equaliser can occupy the dark gutter to the
+        left and right of the picture instead of covering it. It runs only while
+        the effect is on and the room is actually playing, and never intercepts
+        clicks (the click-blocker inside the frame still owns the video surface).
+      */}
+      <BeatVisualizer active={beatOn && player.playing} />
+
       <div className="stage__frame">
         <div ref={containerRef} className="stage__player" />
-
-        {/* Synthetic beat visualiser, layered over the video. Runs only while the
-            effect is on and the room is actually playing; it never intercepts
-            clicks (the click-blocker below still owns the video surface). */}
-        <BeatVisualizer active={beatOn && player.playing} />
 
         {/*
           Live sync pulse. A real playback change bumps `syncPulse` in the store;
