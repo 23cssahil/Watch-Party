@@ -241,9 +241,16 @@ export function useYouTubeSync(
       return;
     }
 
-    const current = player.getCurrentTime?.() ?? 0;
-    if (Math.abs(target - current) > DRIFT_TOLERANCE_SEC) {
-      player.seekTo(target, true);
+    // The host IS the source of truth — the server derives position from them.
+    // Seeking the host's own player back to the server's projected position
+    // causes re-buffering, which is the "1 second play then stop" stutter the
+    // new host sees after taking over. Only viewers need position correction.
+    const myRole = useRoomStore.getState().me?.role;
+    if (myRole !== 'host') {
+      const current = player.getCurrentTime?.() ?? 0;
+      if (Math.abs(target - current) > DRIFT_TOLERANCE_SEC) {
+        player.seekTo(target, true);
+      }
     }
 
     if (next.isPlaying) player.playVideo();
@@ -300,6 +307,12 @@ export function useYouTubeSync(
       // that window is what makes badly-written sync code stutter, because the
       // reported position has not caught up with the seek we just issued.
       if (Date.now() < suppressUntilRef.current) return;
+
+      // The host IS the source of truth — the server's clock is built from their
+      // position. Seeking the host's own player causes buffering, which makes
+      // their video stutter while viewers look fine. Only viewers need correcting.
+      const myRole = store.me?.role;
+      if (myRole === 'host') return;
 
       const target = expectedPosition(store);
       const current = player.getCurrentTime?.() ?? 0;
