@@ -78,6 +78,12 @@ interface RoomStore {
   joinError: string | null;
   /** True while the local player has not caught up with `sync`. */
   needsTapToSync: boolean;
+  /**
+   * True for the public demo party (from `snapshot.demo`). The player runs
+   * locally — play/pause/seek touch only this screen — and the room's shared
+   * clock is ignored. See `useYouTubeSync` and `ControlBar`.
+   */
+  isDemo: boolean;
 
   applySnapshot: (snapshot: RoomSnapshot) => void;
   applySync: (sync: SyncState) => void;
@@ -118,6 +124,7 @@ const initial = {
   removed: null as { by: string; reason: string } | null,
   joinError: null as string | null,
   needsTapToSync: false,
+  isDemo: false,
 };
 
 /**
@@ -148,6 +155,9 @@ export const useRoomStore = create<RoomStore>((set, get) => ({
       requests: snapshot.pendingRequests,
       chat: snapshot.chat,
       removed: null,
+      // The demo flag comes straight off the server snapshot — the client never
+      // decides for itself that a room is a demo, so this stays the single truth.
+      isDemo: Boolean(snapshot.demo),
       // The server just handed us the room, so any earlier refusal is history —
       // this is what stops a stale "no such room" from outliving the join that
       // finally worked.

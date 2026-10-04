@@ -50,6 +50,9 @@ export default function VideoStage() {
   const sync = useRoomStore((state) => state.sync);
   const status = useRoomStore((state) => state.status);
   const syncPulse = useRoomStore((state) => state.syncPulse);
+  // Demo room: playback is local, so a "re-sync with the room" affordance is
+  // meaningless and is hidden. See `ControlBar`.
+  const isDemo = useRoomStore((state) => state.isDemo);
   const player = useYouTubeSync(containerRef);
   const [isFullscreen, setIsFullscreen] = useState(false);
   // The beat visualiser is a purely local, cosmetic preference, so it lives in
@@ -146,7 +149,7 @@ export default function VideoStage() {
         {player.needsGesture && !player.error && (
           <button type="button" className="stage__overlay stage__overlay--gesture" onClick={player.satisfyGesture}>
             <span className="gesture-icon" aria-hidden>▶</span>
-            <strong>Tap to join the party</strong>
+            <strong>{isDemo ? 'Tap to start the music' : 'Tap to join the party'}</strong>
             <small>Browsers block video with sound until you interact with the page.</small>
           </button>
         )}
@@ -184,9 +187,11 @@ export default function VideoStage() {
         >
           🎵 Beats {beatOn ? 'on' : 'off'}
         </button>
-        <button type="button" className="btn btn--tiny stage__resync" onClick={requestSync}>
-          Re-sync me
-        </button>
+        {!isDemo && (
+          <button type="button" className="btn btn--tiny stage__resync" onClick={requestSync}>
+            Re-sync me
+          </button>
+        )}
       </div>
     </section>
   );

@@ -18,6 +18,29 @@ const config = {
 
   mongoUri: process.env.MONGODB_URI || '',
 
+  /**
+   * The public demo party.
+   *
+   * A single, always-available room anyone can drop into to see the product
+   * working without hosting one themselves. It is deliberately unlike a normal
+   * room in two ways, both enforced in `ws/Room.js`:
+   *
+   *   - **Nobody is ever the Host.** Every arrival is a Viewer, so no one can
+   *     change the shared video or drive everyone's playback — the demo is the
+   *     same for everyone and cannot be taken over.
+   *   - **Playback is local.** The client runs its own player (see the `demo`
+   *     flag it receives on the snapshot), so pausing or scrubbing affects only
+   *     that one screen. Presence and chat stay shared.
+   *
+   * The code contains an `O`, which `utils/roomCode`'s generator excludes, so a
+   * random room can never collide with it.
+   */
+  demo: {
+    code: (process.env.DEMO_ROOM_CODE || 'DEMO24').toUpperCase().replace(/[^A-Z0-9]/g, ''),
+    // "Despacito" — Luis Fonsi ft. Daddy Yankee. Set by default for the demo.
+    videoId: process.env.DEMO_VIDEO_ID || 'kJQP7kiw5Fk',
+  },
+
   room: {
     // Length of the short shareable room code (e.g. "K7XQ2P").
     codeLength: 6,

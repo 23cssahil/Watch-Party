@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createRoom, joinRoom } from '../actions';
-import { getIdentity, socket } from '../socket';
+import { getIdentity, rememberUsername, socket } from '../socket';
 import { useRoomStore } from '../store/roomStore';
 import { extractVideoId } from '../lib/format';
 import type { JoinResult } from '../actions';
@@ -27,6 +27,14 @@ const OFFLINE_COPY =
  */
 const WAKING_COPY =
   'The service is waking up — a few seconds normally, up to half a minute if it has been idle. Your click is queued: the room action runs on its own the moment the connection opens.';
+
+/**
+ * The public demo party's fixed code, matching `config.demo.code` on the server.
+ * It contains an `O`, which the room-code generator excludes, so a random room
+ * can never collide with it. It is ownerless: every visitor lands as a Viewer,
+ * watches the same "Despacito", and their play/pause/seek is local to them.
+ */
+const DEMO_ROOM_CODE = 'DEMO24';
 
 /**
  * Landing page: choose a name, then start a room or enter somebody else's code.
@@ -126,6 +134,18 @@ export default function Home() {
   };
 
   /**
+   * Open the public demo party. A display name is required first — the brief
+   * asks that whoever opens the demo is greeted for their name before entering,
+   * so the button is deliberately gated on the same rule as joining a real room.
+   */
+  const onDemo = () => {
+    if (trimmed.length < 2) return setError('Enter a display name first, then open the demo room.');
+    setError('');
+    rememberUsername(trimmed);
+    navigate(`/room/${DEMO_ROOM_CODE}`);
+  };
+
+  /**
    * Restart a connection the transport already gave up on.
    *
    * `reconnect_failed` is terminal: Socket.IO stops trying, and nothing in the UI
@@ -205,9 +225,20 @@ export default function Home() {
                   autoComplete="off"
                 />
               </label>
-              <button type="submit" className="btn btn--ghost" disabled={busy !== null || code.trim().length < 4}>
-                {queued === 'join' ? 'Waiting for the server…' : busy === 'join' ? 'Joining…' : 'Join room'}
-              </button>
+              <div className="pane__actions">
+                <button type="submit" className="btn btn--ghost" disabled={busy !== null || code.trim().length < 4}>
+                  {queued === 'join' ? 'Waiting for the server…' : busy === 'join' ? 'Joining…' : 'Join room'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--demo"
+                  disabled={busy !== null}
+                  onClick={onDemo}
+                  title="Open the always-on demo party — Despacito, everyone joins as a viewer"
+                >
+                  🎉 Demo room
+                </button>
+              </div>
             </form>
           </div>
         </div>

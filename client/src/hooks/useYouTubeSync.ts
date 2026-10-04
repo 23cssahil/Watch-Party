@@ -60,6 +60,13 @@ export interface YouTubeSyncState {
   /** Called by the "Tap to sync" overlay — runs inside a real user gesture. */
   satisfyGesture: () => void;
   seekLocal: (time: number) => void;
+  /**
+   * Drive the local player directly, with no socket emit. Used only in the
+   * demo room, where play/pause is each viewer's own business (their screen
+   * alone), not a room-wide instruction.
+   */
+  playLocal: () => void;
+  pauseLocal: () => void;
 }
 
 export function useYouTubeSync(
@@ -87,6 +94,9 @@ export function useYouTubeSync(
 
   const sync = useRoomStore((state) => state.sync);
   const roomId = useRoomStore((state) => state.roomId); // presence gate only
+  // Demo room: playback is local-only, so the shared room clock is ignored and
+  // the player follows this screen's own play/pause/seek. See `ControlBar`.
+  const isDemo = useRoomStore((state) => state.isDemo);
 
   /**
    * Whether the room has named a video yet.
@@ -258,9 +268,12 @@ export function useYouTubeSync(
   }, []);
 
   useEffect(() => {
-    if (!ready || !sync) return;
+    // In a demo room the shared clock is meaningless — applying it would yank
+    // this viewer's player back to the room's position and undo their own
+    // pause/seek. The player runs purely off local controls here.
+    if (!ready || !sync || isDemo) return;
     applySync(sync);
-  }, [ready, sync, applySync]);
+  }, [ready, sync, applySync, isDemo]);
 
   /**
    * Coming back to a tab that was in the background.
@@ -280,6 +293,9 @@ export function useYouTubeSync(
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState !== 'visible' || !ready) return;
+      // A demo viewer's pause is theirs to keep — re-applying the room state on
+      // tab return would silently resume their video, so skip it.
+      if (useRoomStore.getState().isDemo) return;
       const current = useRoomStore.getState().sync;
       if (current) applySync(current);
     };
@@ -346,9 +362,15 @@ export function useYouTubeSync(
   // ------------------------------------------- autoplay-blocked detection
 
   useEffect(() => {
-    if (!ready || !sync?.isPlaying) return;
+    if (!ready) return;
     const player = playerRef.current;
     if (!player || !apiRef.current) return;
+
+    // A demo invites one tap to start its cued video (a genuine gesture is the
+    // only way past a browser's autoplay-with-sound block). Everywhere else we
+    // only need a gesture when the room says it is playing but we are not.
+    const wantsPlayback = isDemo ? true : Boolean(sync?.isPlaying);
+    if (!wantsPlayback) return;
 
     const timer = window.setTimeout(() => {
       // A paused player in a hidden tab is the browser being efficient, not a
@@ -364,7 +386,7 @@ export function useYouTubeSync(
     }, 900);
 
     return () => clearTimeout(timer);
-  }, [ready, sync?.isPlaying, sync?.videoId, sync?.updatedAt]);
+  }, [ready, isDemo, sync?.isPlaying, sync?.videoId, sync?.updatedAt]);
 
   // ------------------------------------------------------- duration reporting
 
@@ -384,13 +406,30 @@ export function useYouTubeSync(
     if (!player) return;
     const store = useRoomStore.getState();
     suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
-    if (store.sync?.isPlaying) {
+    // In a demo the tap always *starts* the cued video (there is no room clock to
+    // read a play/pause decision from); elsewhere we honour what the room is doing.
+    if (store.isDemo || store.sync?.isPlaying) {
       player.unMute();
       player.playVideo();
     } else {
       player.pauseVideo();
     }
     setNeedsGesture(false);
+  }, []);
+
+  const playLocal = useCallback(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
+    setNeedsGesture(false);
+    player.playVideo();
+  }, []);
+
+  const pauseLocal = useCallback(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
+    player.pauseVideo();
   }, []);
 
   const seekLocal = useCallback((time: number) => {
@@ -436,5 +475,7 @@ export function useYouTubeSync(
     toggleMute,
     satisfyGesture,
     seekLocal,
+    playLocal,
+    pauseLocal,
   };
 }

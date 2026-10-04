@@ -25,6 +25,9 @@ export default function ControlBar({ player }: Props) {
   const capabilities = useRoomStore((state) => state.me?.capabilities);
   const sync = useRoomStore((state) => state.sync);
   const pending = useRoomStore((state) => state.myPendingActions);
+  // Demo room: playback is local-only, so the controls drive this screen's own
+  // player and never emit to the room. See `useYouTubeSync`.
+  const isDemo = useRoomStore((state) => state.isDemo);
   const [urlDraft, setUrlDraft] = useState('');
   const [urlOpen, setUrlOpen] = useState(false);
   /**
@@ -40,7 +43,7 @@ export default function ControlBar({ player }: Props) {
    */
   const [scrub, setScrub] = useState<number | null>(null);
 
-  const canControl = Boolean(capabilities?.allowedActions.includes('play'));
+  const canControl = isDemo || Boolean(capabilities?.allowedActions.includes('play'));
   const position = player.duration > 0 ? player.position : (sync?.position ?? 0);
   const duration = player.duration || sync?.duration || 0;
   const seekValue = scrub ?? Math.min(position, duration || position);
@@ -58,6 +61,12 @@ export default function ControlBar({ player }: Props) {
     if (scrub === null) return;
     const target = scrub;
     setScrub(null);
+    // A demo seek is entirely local — move this screen's player and stop; there
+    // is no room to notify and no host to ask.
+    if (isDemo) {
+      player.seekLocal(target);
+      return;
+    }
     if (canControl) player.seekLocal(target);
     seek(target);
   };
@@ -77,9 +86,22 @@ export default function ControlBar({ player }: Props) {
         <button
           type="button"
           className={`controls__play ${canControl ? '' : 'controls__play--ask'}`}
-          onClick={() => (player.playing ? pause() : play())}
+          onClick={() => {
+            if (isDemo) return player.playing ? player.pauseLocal() : player.playLocal();
+            return player.playing ? pause() : play();
+          }}
           disabled={!sync}
-          title={canControl ? (player.playing ? 'Pause for everyone' : 'Play for everyone') : 'Sends a request to the host'}
+          title={
+            isDemo
+              ? player.playing
+                ? 'Pause (only your screen)'
+                : 'Play (only your screen)'
+              : canControl
+                ? player.playing
+                  ? 'Pause for everyone'
+                  : 'Play for everyone'
+                : 'Sends a request to the host'
+          }
         >
           {player.playing ? '❚❚' : '▶'}
         </button>
@@ -117,14 +139,16 @@ export default function ControlBar({ player }: Props) {
           />
         </div>
 
-        <button
-          type="button"
-          className="btn btn--tiny"
-          onClick={() => setUrlOpen((open) => !open)}
-          disabled={!sync}
-        >
-          {canControl ? 'Change video' : 'Ask to change video'}
-        </button>
+        {!isDemo && (
+          <button
+            type="button"
+            className="btn btn--tiny"
+            onClick={() => setUrlOpen((open) => !open)}
+            disabled={!sync}
+          >
+            {canControl ? 'Change video' : 'Ask to change video'}
+          </button>
+        )}
       </div>
 
       {urlOpen && (
@@ -146,6 +170,12 @@ export default function ControlBar({ player }: Props) {
       )}
 
       <div className="controls__foot">
+        {isDemo && (
+          <p className="controls__hint">
+            <strong>Demo room</strong> — everyone watches the same video and chats together, but
+            play, pause and seek change only your own screen.
+          </p>
+        )}
         {!canControl && (
           <p className="controls__hint">
             You are watching as a <strong>{capabilities?.role}</strong>. Controls send an approval

@@ -2314,3 +2314,35 @@ body {
   .pane + .pane { border-left: none; border-top: 1px solid rgba(255, 255, 255, 0.12); }
 }
 
+/* ==========================================================================
+   Demo room — spacing + the "Demo room" button.
+   --------------------------------------------------------------------------
+   The "Join a party" pane wrapped its code field and the submit button in a
+   plain <form>, which is display:block — so the input and the button sat
+   glued together while the rest of the pane used a 15px flex gap. Making the
+   form a flex column restores that rhythm, and `.pane__actions` pairs Join /
+   Demo side by side. `.btn--demo` is a festive gradient so the showcase
+   invites a click without outshouting the primary Create button.
+   ========================================================================== */
+.pane > form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pane__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pane__actions .btn { flex: 1 1 auto; min-width: 120px; }
+.btn--demo {
+  border-color: transparent;
+  color: #fff;
+  background: linear-gradient(135deg, #7c5cff, #ff4757 55%, #ff9f45);
+  box-shadow: 0 10px 24px rgba(124, 92, 255, 0.30);
+}
+.btn--demo:hover:not(:disabled) {
+  background: linear-gradient(135deg, #8d70ff, #ff5b6b 55%, #ffb35c);
+  box-shadow: 0 12px 28px rgba(124, 92, 255, 0.40);
+}
+

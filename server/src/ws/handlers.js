@@ -215,7 +215,13 @@ class MessageHandler {
       return;
     }
 
-    const room = await this.roomManager.getOrRestore(code);
+    // The public demo party is materialised on demand rather than restored from
+    // the database: it is a fixed, ownerless showcase, so `ensureDemo` hands back
+    // the live one (or makes a fresh cued room after a boot). See `config.demo`.
+    const isDemo = code === normalizeRoomCode(config.demo.code);
+    const room = isDemo
+      ? this.roomManager.ensureDemo()
+      : await this.roomManager.getOrRestore(code);
     if (!room) {
       const error = `No room found with code ${code}.`;
       this.deny(socket, error, 'not_found');

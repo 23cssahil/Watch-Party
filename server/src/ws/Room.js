@@ -37,10 +37,18 @@ class Room {
    * @param {string} opts.id        room code
    * @param {import('socket.io').Server} opts.io
    * @param {string} [opts.videoId]
+   * @param {boolean} [opts.demo]   a public demo party: never hosts anyone
    */
-  constructor({ id, io, videoId = DEFAULT_VIDEO_ID }) {
+  constructor({ id, io, videoId = DEFAULT_VIDEO_ID, demo = false }) {
     this.id = id;
     this.io = io;
+    /**
+     * A demo room is a shared space with no owner: every arrival is a Viewer and
+     * playback is each person's own business (the client is told via `demo` on
+     * the snapshot). See `config.demo` and the guards in `addParticipant` /
+     * `ensureHost`.
+     */
+    this.demo = Boolean(demo);
 
     /** @type {Map<string, Participant>} keyed by stable userId */
     this.participants = new Map();
@@ -179,8 +187,9 @@ class Room {
 
     // First person into an empty room owns it — this is the *only* place the
     // host role is minted from an arrival, so it cannot be claimed from a client
-    // payload.
-    const isFirstEver = this.participants.size === 0 && !this.hostClaimed;
+    // payload. A demo room is the exception: it is deliberately ownerless, so
+    // every arrival — the first included — lands as a plain Viewer.
+    const isFirstEver = !this.demo && this.participants.size === 0 && !this.hostClaimed;
     const participant = new Participant({
       userId,
       socketId,
@@ -232,6 +241,11 @@ class Room {
    * @returns {Participant|null} the host, or null while the room is empty
    */
   ensureHost() {
+    // A demo room must never acquire a Host. Without this guard the code below
+    // would promote the longest-tenured Viewer the moment anyone arrived, and
+    // that person could then change the shared video for the whole demo.
+    if (this.demo) return null;
+
     const current = this.getHost();
     if (current) {
       this.hostClaimed = true;
@@ -667,6 +681,9 @@ class Room {
       pendingRequests: me?.isApprover ? this.listRequests() : [],
       chat: this.chatLog.slice(-50),
       createdAt: this.createdAt,
+      // Tells the client to run its own player (local play/pause/seek) instead
+      // of following the room's shared clock. See `useYouTubeSync`.
+      demo: this.demo,
     };
   }
 }

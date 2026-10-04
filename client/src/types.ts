@@ -90,6 +90,12 @@ export interface RoomSnapshot {
   pendingRequests: ApprovalRequest[];
   chat: ChatMessage[];
   createdAt: number;
+  /**
+   * True for the public demo party. The client then runs its own player
+   * (local play/pause/seek) instead of following the room's shared clock.
+   * See `useYouTubeSync` and `config.demo` on the server.
+   */
+  demo?: boolean;
 }
 
 /** Inbound payload shapes, named so both the event map and the listeners share them. */

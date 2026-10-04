@@ -68,6 +68,26 @@ class RoomManager {
   }
 
   /**
+   * Return the live demo room, creating it if it is not resident (first visit
+   * after a boot, or after a restart). Unlike a real room it is not restored from
+   * the database and never hosts anyone — it is a fixed, ownerless showcase with
+   * the demo video cued. `Room` guarantees every arrival is a Viewer.
+   * @returns {Room}
+   */
+  ensureDemo() {
+    const code = normalizeRoomCode(config.demo.code);
+    const live = this.rooms.get(code);
+    if (live) return live;
+    const room = new Room({ id: code, io: this.io, videoId: config.demo.videoId, demo: true });
+    // Cued, not playing: each viewer starts it on their own screen with a tap,
+    // which is also what satisfies the browser's autoplay-with-sound gesture.
+    room.state.isPlaying = false;
+    room.onStateChange = (dirty) => this.persist(dirty);
+    this.rooms.set(code, room);
+    return room;
+  }
+
+  /**
    * Look for a live room, and if the server has restarted, try to rebuild its
    * durable metadata from the database so an old share link still works.
    *
@@ -169,6 +189,11 @@ class RoomManager {
   sweep() {
     const cutoff = Date.now() - config.room.emptyRoomTtlMs;
     for (const [code, room] of this.rooms) {
+      // The demo room is kept warm between visitors on purpose — it is the
+      // always-on showcase, and an empty one costs nothing (it never plays, so
+      // the heartbeat skips it). Reaping it would only make the next joiner wait
+      // for a fresh one and lose the shared chat.
+      if (room.demo) continue;
       if (room.size === 0 && room.lastActiveAt < cutoff) {
         this.rooms.delete(code);
         console.log(`[RoomManager] reaped empty room ${code}`);
