@@ -2550,3 +2550,21 @@ body {
   .brand-wave i { animation: none; transform: scaleY(0.6); }
 }
 
+/* The same wave, sized down for the compact room top bar and parked right after
+   the "live" tag. It reuses the brandWave keyframes and bar styling above — only
+   the footprint changes — and hides on narrow bars where "live" is already cut. */
+.brand-wave--room {
+  flex: 1 1 120px;
+  min-width: 0;
+  height: 20px;
+  gap: 3px;
+  max-width: 168px;
+  margin-left: 4px;
+}
+.brand-wave--room i {
+  box-shadow: 0 0 7px rgba(255, 71, 87, 0.28);
+}
+@media (max-width: 480px) {
+  .brand-wave--room { display: none; }
+}
+

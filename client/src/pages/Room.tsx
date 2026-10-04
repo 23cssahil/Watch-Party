@@ -148,6 +148,13 @@ export default function Room() {
           <span className="room__transport" title={`Socket.IO over ${transport || 'pending'}`}>
             {transport === 'websocket' ? 'live' : transport || 'connecting'}
           </span>
+          {/* The same live sound-wave from the landing title, parked after the
+              "live" tag so the room bar reads as on-air too. Purely decorative. */}
+          <span className="brand-wave brand-wave--room" aria-hidden>
+            {Array.from({ length: 18 }).map((_, i) => (
+              <i key={i} />
+            ))}
+          </span>
         </div>
 
         <div className="room__actions">
