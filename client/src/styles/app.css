@@ -529,6 +529,13 @@ a {
   width: 100%;
   aspect-ratio: 16 / 9;
   max-height: calc(100vh - var(--bar-height) - 190px);
+  /* When the viewport is shorter than a full-width 16:9 needs, `max-height`
+     alone leaves the box WIDER than 16:9 — `width: 100%` is never reconsidered,
+     so the ratio silently breaks and YouTube letterboxes the video inside the
+     stretched frame (the black gap around the picture). Deriving a matching
+     max-width from the same height budget shrinks the frame itself instead,
+     so the video always fills the framed box edge-to-edge. */
+  max-width: calc((100vh - var(--bar-height) - 190px) * 16 / 9);
   margin-inline: auto;
   border-radius: var(--radius);
   overflow: hidden;
@@ -611,6 +618,7 @@ a {
 .stage:fullscreen .stage__frame,
 .stage:-webkit-full-screen .stage__frame {
   max-height: calc(100vh - 190px);
+  max-width: calc((100vh - 190px) * 16 / 9);
   border: none;
   box-shadow: none;
 }
