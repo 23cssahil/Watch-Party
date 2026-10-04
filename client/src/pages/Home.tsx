@@ -37,6 +37,18 @@ const WAKING_COPY =
 const DEMO_ROOM_CODE = 'DEMO24';
 
 /**
+ * One row of the landing page's "Live rooms" directory, as returned by
+ * `GET /api/rooms`. Read-only summary only — no ids, chat or queue.
+ */
+interface LiveRoom {
+  code: string;
+  host: string;
+  viewers: number;
+  title: string;
+  isDemo: boolean;
+}
+
+/**
  * Landing page: choose a name, then start a room or enter somebody else's code.
  *
  * The room code does not exist until the server answers `create_room`, so
@@ -67,6 +79,14 @@ export default function Home() {
   const nameRef = useRef<HTMLInputElement>(null);
   const [nameAlert, setNameAlert] = useState(false);
 
+  // The right-hand "Live rooms" directory: a polled read-only list, plus its own
+  // self-contained join widget (a display-name box shared by every row's Join).
+  const [liveRooms, setLiveRooms] = useState<LiveRoom[]>([]);
+  const [joinName, setJoinName] = useState(identity.username);
+  const [joinNameAlert, setJoinNameAlert] = useState(false);
+  const [panelError, setPanelError] = useState('');
+  const joinNameRef = useRef<HTMLInputElement>(null);
+
   const videoId = extractVideoId(video);
   const trimmed = name.trim();
 
@@ -90,6 +110,29 @@ export default function Home() {
       setBusy(null);
     }
   }, [status]);
+
+  // Poll the live-rooms directory. Same-origin `/api/rooms` (Vite proxies it in
+  // dev), so it needs no server URL. A failed fetch just keeps the last list —
+  // the demo row is rendered client-side regardless, so the panel is never blank.
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch('/api/rooms', { headers: { accept: 'application/json' } });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (alive && Array.isArray(data.rooms)) setLiveRooms(data.rooms);
+      } catch {
+        /* offline or a waking cold start — keep whatever we last showed */
+      }
+    };
+    load();
+    const timer = window.setInterval(load, 6000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   /** Send now, or send the instant the connection opens. Never drop a click that can be kept. */
   const runOrQueue = (intent: 'create' | 'join', run: () => void) => {
@@ -166,6 +209,37 @@ export default function Home() {
   };
 
   /**
+   * Same "make the refusal seen" idea as `needName`, but for the Live rooms
+   * panel's own display-name box — scroll it into view, focus it and ring it.
+   */
+  const needJoinName = (message: string) => {
+    setPanelError(message);
+    setJoinNameAlert(true);
+    joinNameRef.current?.focus();
+    joinNameRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => setJoinNameAlert(false), 2600);
+  };
+
+  /** Drop into a room straight from the directory, using the panel's name. */
+  const joinListedRoom = (roomCode: string) => {
+    const target = joinName.trim();
+    if (target.length < 2) return needJoinName('Type your display name here first, then tap Join.');
+    setPanelError('');
+    rememberUsername(target);
+    navigate(`/room/${roomCode.toUpperCase()}`);
+  };
+
+  const demoRoom: LiveRoom =
+    liveRooms.find((room) => room.isDemo) ?? {
+      code: DEMO_ROOM_CODE,
+      host: 'Despacito',
+      viewers: 0,
+      title: 'Despacito — Luis Fonsi ft. Daddy Yankee',
+      isDemo: true,
+    };
+  const otherRooms = liveRooms.filter((room) => !room.isDemo);
+
+  /**
    * Restart a connection the transport already gave up on.
    *
    * `reconnect_failed` is terminal: Socket.IO stops trying, and nothing in the UI
@@ -190,6 +264,7 @@ export default function Home() {
         </div>
       </header>
 
+      <div className="home__layout">
       <section className="home__card">
         <label className={`field ${nameAlert ? 'field--alert' : ''}`}>
           <span className="field__label">Display name</span>
@@ -285,6 +360,74 @@ export default function Home() {
           )}
         </p>
       </section>
+
+        <aside className="live-rooms" aria-label="Live rooms">
+          <div className="live-rooms__head">
+            <span className="live-rooms__dot" aria-hidden />
+            <h2>Live rooms</h2>
+            <span className="live-rooms__count">{liveRooms.length}</span>
+          </div>
+
+          {/* The demo is the pinned top entry: a flat "card" (no border/fill) that
+              carries a host name, the display-name box and a Join button. */}
+          <div className="live-room live-room--feature">
+            <div className="live-room__info">
+              <p className="live-room__host">
+                <span className="live-room__tag">★ Live demo</span>
+                <span className="live-room__hostname">{demoRoom.host}</span>
+              </p>
+              <p className="live-room__meta">
+                {demoRoom.title}
+                {demoRoom.viewers > 0 ? ` · ${demoRoom.viewers} watching` : ''}
+              </p>
+            </div>
+          </div>
+
+          <label className={`field live-rooms__name ${joinNameAlert ? 'field--alert' : ''}`}>
+            <span className="field__label">Your display name</span>
+            <input
+              ref={joinNameRef}
+              value={joinName}
+              onChange={(event) => {
+                setJoinName(event.target.value);
+                if (panelError) setPanelError('');
+              }}
+              placeholder="Type your name, then Join"
+              maxLength={24}
+              autoComplete="nickname"
+            />
+          </label>
+          <button type="button" className="btn btn--demo live-rooms__join" onClick={() => joinListedRoom(demoRoom.code)}>
+            Join demo
+          </button>
+          {panelError && <p className="live-rooms__error">{panelError}</p>}
+
+          <div className="live-rooms__divider">
+            <span>Other live rooms</span>
+          </div>
+
+          <ul className="live-rooms__list">
+            {otherRooms.map((room) => (
+              <li key={room.code} className="live-room">
+                <div className="live-room__info">
+                  <p className="live-room__host">
+                    <span className="live-room__hostname">{room.host}</span>
+                  </p>
+                  <p className="live-room__meta">
+                    {room.title || 'A party in progress'} · {room.viewers} watching
+                  </p>
+                </div>
+                <button type="button" className="btn btn--tiny" onClick={() => joinListedRoom(room.code)}>
+                  Join
+                </button>
+              </li>
+            ))}
+            {otherRooms.length === 0 && (
+              <li className="live-rooms__empty">No other rooms are live right now — start one on the left.</li>
+            )}
+          </ul>
+        </aside>
+      </div>
 
       <ul className="home__features">
         <li>

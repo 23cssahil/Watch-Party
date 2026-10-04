@@ -223,6 +223,46 @@ class RoomManager {
       pendingRequests,
     };
   }
+
+  /**
+   * A public directory of rooms that currently have people in them, for the
+   * landing page's "Live rooms" panel. Read-only and deliberately minimal: it
+   * exposes only what a stranger needs to decide whether to drop in — the code,
+   * who is hosting, how many are watching and what is playing. It never leaks
+   * user ids, socket ids, chat or the approval queue, and joining is still gated
+   * by the socket layer's own rules (a demo never hosts anyone; a full room
+   * refuses).
+   *
+   * The demo party is always first and always present — even when empty — because
+   * it is the permanent showcase the request wants pinned at the top.
+   * @param {number} [limit]
+   * @returns {Array<{code:string,host:string,viewers:number,title:string,isDemo:boolean}>}
+   */
+  listLive(limit = 30) {
+    const rows = [];
+    for (const room of this.rooms.values()) {
+      if (room.demo || room.size === 0) continue;
+      rows.push({
+        code: room.id,
+        host: room.getHost()?.username || 'Guest',
+        viewers: room.size,
+        title: room.videoTitle || '',
+        isDemo: false,
+      });
+    }
+    // Busiest first so a lively party surfaces above a nearly-empty one.
+    rows.sort((a, b) => b.viewers - a.viewers);
+
+    const live = this.rooms.get(normalizeRoomCode(config.demo.code));
+    const demo = {
+      code: config.demo.code,
+      host: 'Despacito',
+      viewers: live ? live.size : 0,
+      title: live?.videoTitle || 'Despacito — Luis Fonsi ft. Daddy Yankee',
+      isDemo: true,
+    };
+    return [demo, ...rows].slice(0, limit + 1);
+  }
 }
 
 module.exports = RoomManager;

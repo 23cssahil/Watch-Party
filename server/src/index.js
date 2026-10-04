@@ -98,6 +98,17 @@ app.get('/health', (_req, res) => {
 });
 
 /**
+ * The landing page's "Live rooms" directory: a read-only list of parties that
+ * currently have people in them, with the demo pinned first. Public by design —
+ * the whole point is that a stranger can see something is happening and drop in.
+ * It is capped and carries no user ids, chat or queue; the code is only ever a
+ * hint, because actually joining still runs the socket layer's own gates.
+ */
+app.get('/api/rooms', (_req, res) => {
+  res.json({ ok: true, rooms: roomManager.listLive() });
+});
+
+/**
  * Share-link preflight: read-only inspection of one room code.
  *
  * Not used by the app itself — the client learns whether a join worked from the
