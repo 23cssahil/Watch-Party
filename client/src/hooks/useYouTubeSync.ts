@@ -40,7 +40,7 @@ import type { SyncState } from '../types';
  * participant list, chat and controls on every tick.
  */
 
-const DRIFT_TOLERANCE_SEC = 1.5;
+const DRIFT_TOLERANCE_SEC = 0.4;
 const SUPPRESS_WINDOW_MS = 1200;
 const DRIFT_CHECK_MS = 1000;
 const POSITION_TICK_MS = 250;
