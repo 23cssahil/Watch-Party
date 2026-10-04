@@ -4,8 +4,9 @@ import ParticipantList from './ParticipantList';
 import RequestQueue from './RequestQueue';
 import ChatPanel from './ChatPanel';
 import ShareCard from './ShareCard';
+import ActivityTimeline from './ActivityTimeline';
 
-type Tab = 'people' | 'share' | 'requests' | 'chat';
+type Tab = 'people' | 'share' | 'requests' | 'chat' | 'activity';
 
 interface Props {
   open: boolean;
@@ -25,18 +26,21 @@ interface Props {
  * - Share: invite link + room code
  * - Requests: host/mod only approval queue
  * - Chat: group chat
+ * - Activity: the live timeline of joins / playback / roles (signature feature)
  */
 export default function SidePanel({ open, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('people');
   const canApprove = useRoomStore((state) => Boolean(state.me?.capabilities.canApprove));
   const requestCount = useRoomStore((state) => state.requests.length);
   const participants = useRoomStore((state) => state.participants);
+  const activityCount = useRoomStore((state) => state.activity.length);
 
   const tabs: { id: Tab; label: string; badge?: number; hidden?: boolean }[] = [
     { id: 'people', label: `People`, badge: participants.length },
     { id: 'share', label: 'Share' },
     { id: 'requests', label: 'Requests', badge: requestCount, hidden: !canApprove },
     { id: 'chat', label: 'Chat' },
+    { id: 'activity', label: 'Activity', badge: activityCount },
   ];
 
   return (
@@ -71,6 +75,7 @@ export default function SidePanel({ open, onClose }: Props) {
         {tab === 'share' && <ShareCard />}
         {tab === 'requests' && <RequestQueue />}
         {tab === 'chat' && <ChatPanel />}
+        {tab === 'activity' && <ActivityTimeline />}
       </div>
     </aside>
   );

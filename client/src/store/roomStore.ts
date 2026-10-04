@@ -41,6 +41,25 @@ export interface FloatingReaction {
   username: string;
 }
 
+/**
+ * A single line in the room's live activity feed.
+ *
+ * Deliberately a *display* model, not a replay of the wire: each entry is the
+ * human sentence we already build for a toast, kept after the toast expires.
+ * Nothing here is authoritative and nothing is persisted — it is the visual
+ * memory of the party, capped to the last few dozen moments.
+ */
+export type ActivityKind = 'join' | 'leave' | 'role' | 'playback' | 'chat' | 'system';
+
+export interface ActivityEntry {
+  id: string;
+  kind: ActivityKind;
+  text: string;
+  at: number;
+  /** Accent used for the timeline dot; mirrors the toast tone vocabulary. */
+  tone: 'info' | 'success' | 'warn' | 'error';
+}
+
 interface RoomStore {
   status: ConnectionStatus;
   transport: string;
@@ -58,6 +77,18 @@ interface RoomStore {
   chat: ChatMessage[];
   toasts: Toast[];
   reactions: FloatingReaction[];
+  /**
+   * Live activity feed — join/leave/role/playback moments folded into one log.
+   * Capped to the last ACTIVITY_LIMIT entries so an idle tab cannot grow it.
+   */
+  activity: ActivityEntry[];
+  /**
+   * Bumped once per *real* playback change the server broadcasts (never for the
+   * 5s drift-correcting heartbeat). VideoStage keys a ripple on this value, so
+   * every viewer sees the exact beat at which the room moved — the "we are live"
+   * pulse. A monotonically increasing counter is all the animation needs.
+   */
+  syncPulse: number;
   /** Set when the Host kicks us; the Room page swaps to a locked screen. */
   removed: { by: string; reason: string } | null;
   /**
@@ -85,6 +116,8 @@ interface RoomStore {
   dismissToast: (id: string) => void;
   pushReaction: (reaction: FloatingReaction) => void;
   popReaction: (id: string) => void;
+  pushActivity: (entry: Omit<ActivityEntry, 'id' | 'at'>) => void;
+  bumpSyncPulse: () => void;
   setStatus: (status: ConnectionStatus, transport?: string) => void;
   setNeedsTapToSync: (value: boolean) => void;
   setRemoved: (removed: { by: string; reason: string } | null) => void;
@@ -106,6 +139,8 @@ const initial = {
   chat: [] as ChatMessage[],
   toasts: [] as Toast[],
   reactions: [] as FloatingReaction[],
+  activity: [] as ActivityEntry[],
+  syncPulse: 0,
   removed: null as { by: string; reason: string } | null,
   joinError: null as string | null,
   needsTapToSync: false,
@@ -221,6 +256,25 @@ export const useRoomStore = create<RoomStore>((set, get) => ({
 
   popReaction: (id) =>
     set((state) => ({ reactions: state.reactions.filter((reaction) => reaction.id !== id) })),
+
+  /**
+   * Prepend a live-feed entry (newest first) and cap the list. Reuses the id
+   * recipe from toasts so two events landing in the same millisecond still get
+   * distinct React keys.
+   */
+  pushActivity: (entry) =>
+    set((state) => ({
+      activity: [
+        {
+          ...entry,
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          at: Date.now(),
+        },
+        ...state.activity,
+      ].slice(0, 40),
+    })),
+
+  bumpSyncPulse: () => set((state) => ({ syncPulse: state.syncPulse + 1 })),
 
   setStatus: (status, transport) =>
     set((state) => ({ status, transport: transport ?? state.transport })),

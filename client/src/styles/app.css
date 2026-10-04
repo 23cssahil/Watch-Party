@@ -1817,6 +1817,355 @@ a {
   -webkit-backdrop-filter: blur(18px) saturate(150%);
 }
 
+
+/* ==========================================================================
+   Aurora Glass (evolved) — the signature identity layer.
+   --------------------------------------------------------------------------
+   Appended after the Premium layer so it wins the cascade at equal
+   specificity. It only re-themes existing selectors and styles the three
+   signature live features (sync pulse, presence orbit, activity feed) plus the
+   Activity tab. No markup contract the server relies on is touched, so the RBAC
+   and persistence suites are unaffected.
+   ========================================================================== */
+
+@keyframes meshDrift {
+  0%   { background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%; }
+  50%  { background-position: 22% 30%, 78% 16%, 72% 88%, 28% 68%; }
+  100% { background-position: 40% 12%, 60% 42%, 88% 66%, 10% 40%; }
+}
+@keyframes ripple {
+  from { transform: scale(0.3); opacity: 0.95; }
+  to   { transform: scale(16); opacity: 0; }
+}
+@keyframes pulseFlash {
+  0% { opacity: 0; } 18% { opacity: 0.85; } 100% { opacity: 0; }
+}
+@keyframes orbitBob {
+  0%, 100% { transform: translate(-50%, -50%) translateY(0); }
+  50%      { transform: translate(-50%, -50%) translateY(-5px); }
+}
+@keyframes rimShimmer {
+  to { filter: hue-rotate(360deg); }
+}
+@keyframes feedIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ---- the mesh: a living aurora that the whole app sits on top of ---- */
+body {
+  background-color: #06070d;
+  background-image:
+    radial-gradient(45% 42% at 20% 24%, rgba(124, 92, 255, 0.34), transparent 62%),
+    radial-gradient(46% 42% at 82% 18%, rgba(255, 71, 87, 0.28), transparent 62%),
+    radial-gradient(52% 46% at 72% 84%, rgba(46, 213, 115, 0.16), transparent 64%),
+    radial-gradient(44% 44% at 22% 80%, rgba(30, 144, 255, 0.22), transparent 62%);
+  background-size: 180% 180%, 180% 180%, 210% 210%, 190% 190%;
+  background-repeat: no-repeat;
+  animation: meshDrift 34s ease-in-out infinite alternate;
+}
+
+/* the two full-page shells let the mesh show through instead of hiding it */
+.home { background: transparent; }
+.room { background: transparent; }
+
+/* ---- room bar: floating glass + gradient wordmark ---- */
+.room__bar {
+  background: linear-gradient(180deg, rgba(10, 12, 20, 0.62), rgba(8, 10, 16, 0.44));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 12px 30px -22px rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+}
+.room__brand span {
+  background: var(--grad-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+.room__code {
+  background: linear-gradient(135deg, rgba(255, 71, 87, 0.16), rgba(124, 92, 255, 0.16));
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  box-shadow: 0 0 22px -8px rgba(124, 92, 255, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+/* ---- the stage: a slab of light with a shimmering neon rim ---- */
+.stage__frame {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: #04050a;
+  box-shadow: 0 34px 80px -40px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(124, 92, 255, 0.12),
+    inset 0 0 70px rgba(124, 92, 255, 0.05);
+}
+.stage__frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  z-index: 6;
+  pointer-events: none;
+  background: linear-gradient(120deg, rgba(255, 71, 87, 0.7), rgba(124, 92, 255, 0.7),
+    rgba(30, 144, 255, 0.7), rgba(255, 71, 87, 0.7));
+  background-size: 300% 300%;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: sheen 6s linear infinite;
+}
+
+/* ---- LIVE FEATURE: sync heartbeat pulse (one-shot ripple per real change) ---- */
+.stage__pulse {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: inherit;
+}
+.stage__pulse::before {
+  content: '';
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 26px rgba(255, 71, 87, 0.8), inset 0 0 18px rgba(124, 92, 255, 0.55);
+  animation: ripple 1s var(--ease) forwards;
+}
+.stage__pulse::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(60% 60% at 50% 50%, rgba(124, 92, 255, 0.35), transparent 70%);
+  animation: pulseFlash 0.9s ease-out forwards;
+}
+
+/* ---- LIVE FEATURE: presence orbit (the room's faces ringed around the frame) ---- */
+.stage__orbit {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.orbit__chip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  animation: orbitBob 4.5s ease-in-out infinite;
+}
+.orbit__avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 800;
+  color: #0b0d12;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5), 0 6px 16px rgba(0, 0, 0, 0.55);
+}
+.orbit__chip--moderator .orbit__avatar {
+  box-shadow: 0 0 0 2px #b7a6ff, 0 0 16px rgba(124, 92, 255, 0.55);
+}
+.orbit__chip--host .orbit__avatar {
+  width: 33px;
+  height: 33px;
+  font-size: 11px;
+  box-shadow: 0 0 0 2px #ffd27d, 0 0 20px rgba(255, 165, 2, 0.6);
+}
+
+/* ---- control bar + reactions: floating glass ---- */
+.controls {
+  background: linear-gradient(180deg, rgba(24, 28, 44, 0.72), rgba(12, 14, 24, 0.74));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 50px -30px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+.controls__play {
+  box-shadow: 0 10px 24px rgba(255, 71, 87, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition: transform 0.16s var(--ease), box-shadow 0.24s var(--ease);
+}
+.controls__play:hover:not(:disabled) {
+  transform: scale(1.07);
+  box-shadow: 0 14px 30px rgba(255, 71, 87, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.reactions {
+  background: linear-gradient(180deg, rgba(24, 28, 44, 0.66), rgba(12, 14, 24, 0.7));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: 0 16px 34px -24px rgba(0, 0, 0, 0.8);
+}
+
+/* ---- side panel: a deep frosted rail floating over the mesh ---- */
+.panel {
+  background: linear-gradient(180deg, rgba(18, 22, 34, 0.66), rgba(9, 11, 19, 0.72));
+  border-left: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: -34px 0 70px -46px rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(28px) saturate(165%);
+  -webkit-backdrop-filter: blur(28px) saturate(165%);
+}
+.panel__head {
+  background: rgba(8, 10, 16, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+/* Five tabs (People/Share/Requests/Chat/Activity) no longer fit on one line in
+   a 340px rail, so the strip wraps into a tidy two-row segmented control and the
+   head grows to fit instead of clipping the Activity tab off-screen. */
+.panel__head {
+  min-height: 0;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.panel__tabs {
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.panel__tab {
+  padding: 7px 10px;
+  font-size: 12.5px;
+}
+.panel__tab--on {
+  color: #fff;
+  background: linear-gradient(135deg, rgba(255, 71, 87, 0.2), rgba(124, 92, 255, 0.24));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 0 18px -6px rgba(124, 92, 255, 0.7);
+}
+/* The single-row underline (bottom:-12px) looks detached once the strip wraps,
+   so selection is carried by the glowing pill instead. */
+.panel__tab--on::after {
+  display: none;
+}
+
+/* ---- people: glass rows that lift toward the cursor ---- */
+.person {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: transform 0.2s var(--ease), border-color 0.2s var(--ease),
+    background 0.2s var(--ease), box-shadow 0.24s var(--ease);
+}
+.person:hover {
+  transform: translateY(-2px);
+  border-color: rgba(124, 92, 255, 0.42);
+  background: rgba(124, 92, 255, 0.06);
+  box-shadow: 0 0 0 1px rgba(124, 92, 255, 0.28), 0 20px 42px -26px rgba(124, 92, 255, 0.6);
+}
+.person--me {
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.14), rgba(255, 71, 87, 0.07));
+  border-color: rgba(124, 92, 255, 0.42);
+}
+
+/* ---- LIVE FEATURE: the activity feed (new tab in the rail) ---- */
+.activity {
+  display: grid;
+  gap: 2px;
+}
+.activity--empty {
+  display: grid;
+  gap: 6px;
+  padding: 22px 14px;
+  text-align: center;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+.activity--empty p {
+  color: var(--text);
+  font-weight: 600;
+}
+.activity--empty span {
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.activity__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1px;
+}
+.act {
+  display: grid;
+  grid-template-columns: 14px auto 1fr;
+  align-items: start;
+  gap: 9px;
+  padding: 8px 6px;
+  border-radius: 10px;
+  animation: feedIn 0.4s var(--ease) both;
+}
+.act:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.act__rail {
+  display: grid;
+  justify-items: center;
+}
+.act__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-top: 5px;
+  position: relative;
+  background: var(--surface-3);
+}
+.act__dot::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: 1px;
+  height: 22px;
+  background: var(--line);
+  transform: translateX(-50%);
+}
+.act:last-child .act__dot::before {
+  display: none;
+}
+.act__icon {
+  font-size: 12px;
+  line-height: 1.5;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.18));
+}
+.act__body {
+  min-width: 0;
+}
+.act__text {
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.act__time {
+  font-size: 10.5px;
+  color: var(--muted-2);
+  font-style: normal;
+}
+.act--info .act__dot { background: var(--violet); box-shadow: 0 0 9px rgba(124, 92, 255, 0.6); }
+.act--success .act__dot { background: var(--ok); box-shadow: 0 0 9px rgba(46, 213, 115, 0.6); }
+.act--warn .act__dot { background: var(--warn); box-shadow: 0 0 9px rgba(255, 165, 2, 0.6); }
+.act--error .act__dot { background: var(--accent); box-shadow: 0 0 9px rgba(255, 71, 87, 0.6); }
+
+/* ---- landing hero: bigger gradient wordmark + a floating glass card ---- */
+.home__brand h1 {
+  font-size: 40px;
+  letter-spacing: -1.2px;
+  filter: drop-shadow(0 6px 22px rgba(124, 92, 255, 0.35));
+}
+.home__brand p {
+  color: var(--muted);
+}
+.home__card {
+  box-shadow: 0 44px 90px -46px rgba(0, 0, 0, 0.9),
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
