@@ -79,13 +79,12 @@ export default function Home() {
   const nameRef = useRef<HTMLInputElement>(null);
   const [nameAlert, setNameAlert] = useState(false);
 
-  // The right-hand "Live rooms" directory: a polled read-only list, plus its own
-  // self-contained join widget (a display-name box shared by every row's Join).
+  // The right-hand "Live rooms" directory: a polled, read-only list. Joining a
+  // listed room reuses the single Display name field above — no second box. When
+  // someone taps Join with no name yet, we remember which room they wanted
+  // (`pendingRoom`) so the field can ring and Enter can finish the join.
   const [liveRooms, setLiveRooms] = useState<LiveRoom[]>([]);
-  const [joinName, setJoinName] = useState(identity.username);
-  const [joinNameAlert, setJoinNameAlert] = useState(false);
-  const [panelError, setPanelError] = useState('');
-  const joinNameRef = useRef<HTMLInputElement>(null);
+  const [pendingRoom, setPendingRoom] = useState<string | null>(null);
 
   const videoId = extractVideoId(video);
   const trimmed = name.trim();
@@ -209,26 +208,32 @@ export default function Home() {
   };
 
   /**
-   * Same "make the refusal seen" idea as `needName`, but for the Live rooms
-   * panel's own display-name box — scroll it into view, focus it and ring it.
+   * Drop into a room straight from the directory. It reuses the single Display
+   * name field at the top of the page — there is no second box. With no name
+   * yet, we remember the chosen room and ring that field (see `needName`), so
+   * typing a name and pressing Enter — or tapping Join again — finishes it.
    */
-  const needJoinName = (message: string) => {
-    setPanelError(message);
-    setJoinNameAlert(true);
-    joinNameRef.current?.focus();
-    joinNameRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    window.setTimeout(() => setJoinNameAlert(false), 2600);
-  };
-
-  /** Drop into a room straight from the directory, using the panel's name. */
   const joinListedRoom = (roomCode: string) => {
-    const target = joinName.trim();
-    if (target.length < 2) return needJoinName('Type your display name here first, then tap Join.');
-    setPanelError('');
-    rememberUsername(target);
+    if (trimmed.length < 2) {
+      setPendingRoom(roomCode);
+      return needName('Enter a display name above, then press Enter to join this room.');
+    }
+    setPendingRoom(null);
+    rememberUsername(trimmed);
     navigate(`/room/${roomCode.toUpperCase()}`);
   };
 
+  // Enter in the Display name field completes a directory room that was picked
+  // but is still waiting on a name. Anywhere else, Enter is left to the browser.
+  const onNameKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && pendingRoom) {
+      event.preventDefault();
+      joinListedRoom(pendingRoom);
+    }
+  };
+
+  // The demo is always the first row: the server pins it, and the fallback keeps
+  // it there even before the first fetch lands or if a cold server is still asleep.
   const demoRoom: LiveRoom =
     liveRooms.find((room) => room.isDemo) ?? {
       code: DEMO_ROOM_CODE,
@@ -237,7 +242,7 @@ export default function Home() {
       title: 'Despacito — Luis Fonsi ft. Daddy Yankee',
       isDemo: true,
     };
-  const otherRooms = liveRooms.filter((room) => !room.isDemo);
+  const rows: LiveRoom[] = [demoRoom, ...liveRooms.filter((room) => !room.isDemo)];
 
   /**
    * Restart a connection the transport already gave up on.
@@ -272,6 +277,7 @@ export default function Home() {
             ref={nameRef}
             value={name}
             onChange={(event) => setName(event.target.value)}
+            onKeyDown={onNameKeyDown}
             placeholder="How the room will see you"
             maxLength={24}
             autoComplete="nickname"
@@ -365,66 +371,25 @@ export default function Home() {
           <div className="live-rooms__head">
             <span className="live-rooms__dot" aria-hidden />
             <h2>Live rooms</h2>
-            <span className="live-rooms__count">{liveRooms.length}</span>
+            <span className="live-rooms__count">{rows.length}</span>
           </div>
 
-          {/* The demo is the pinned top entry: a flat "card" (no border/fill) that
-              carries a host name, the display-name box and a Join button. */}
-          <div className="live-room live-room--feature">
-            <div className="live-room__info">
-              <p className="live-room__host">
-                <span className="live-room__tag">★ Live demo</span>
-                <span className="live-room__hostname">{demoRoom.host}</span>
-              </p>
-              <p className="live-room__meta">
-                {demoRoom.title}
-                {demoRoom.viewers > 0 ? ` · ${demoRoom.viewers} watching` : ''}
-              </p>
-            </div>
-          </div>
-
-          <label className={`field live-rooms__name ${joinNameAlert ? 'field--alert' : ''}`}>
-            <span className="field__label">Your display name</span>
-            <input
-              ref={joinNameRef}
-              value={joinName}
-              onChange={(event) => {
-                setJoinName(event.target.value);
-                if (panelError) setPanelError('');
-              }}
-              placeholder="Type your name, then Join"
-              maxLength={24}
-              autoComplete="nickname"
-            />
-          </label>
-          <button type="button" className="btn btn--demo live-rooms__join" onClick={() => joinListedRoom(demoRoom.code)}>
-            Join demo
-          </button>
-          {panelError && <p className="live-rooms__error">{panelError}</p>}
-
-          <div className="live-rooms__divider">
-            <span>Other live rooms</span>
-          </div>
-
+          {/* One room per line, demo pinned first. About five are visible at a
+              time; the rest scroll inside the list. Each row's Join reuses the
+              single Display name field above (see `joinListedRoom`). */}
           <ul className="live-rooms__list">
-            {otherRooms.map((room) => (
+            {rows.map((room) => (
               <li key={room.code} className="live-room">
-                <div className="live-room__info">
-                  <p className="live-room__host">
-                    <span className="live-room__hostname">{room.host}</span>
-                  </p>
-                  <p className="live-room__meta">
-                    {room.title || 'A party in progress'} · {room.viewers} watching
-                  </p>
-                </div>
+                <span className="live-room__host">
+                  {room.isDemo && <span className="live-room__tag">★ Demo</span>}
+                  <span className="live-room__hostname">{room.host}</span>
+                </span>
+                <span className="live-room__viewers">{room.viewers} watching</span>
                 <button type="button" className="btn btn--tiny" onClick={() => joinListedRoom(room.code)}>
                   Join
                 </button>
               </li>
             ))}
-            {otherRooms.length === 0 && (
-              <li className="live-rooms__empty">No other rooms are live right now — start one on the left.</li>
-            )}
           </ul>
         </aside>
       </div>
