@@ -61,6 +61,11 @@ export default function Home() {
    */
   const [queued, setQueued] = useState<'create' | 'join' | null>(null);
   const queuedRef = useRef<{ intent: 'create' | 'join'; run: () => void } | null>(null);
+  // The display-name box and an attention flag for it. A refusal that only
+  // lands in the error strip at the bottom is easy to miss, so we also pull the
+  // eye to the field itself (see `needName`).
+  const nameRef = useRef<HTMLInputElement>(null);
+  const [nameAlert, setNameAlert] = useState(false);
 
   const videoId = extractVideoId(video);
   const trimmed = name.trim();
@@ -115,7 +120,7 @@ export default function Home() {
   };
 
   const onCreate = () => {
-    if (trimmed.length < 2) return setError('Pick a display name of at least 2 characters.');
+    if (trimmed.length < 2) return needName('Pick a display name of at least 2 characters to start a room.');
     setError('');
     runOrQueue('create', () => createRoom(trimmed, videoId || undefined, onResult('create')));
   };
@@ -128,9 +133,24 @@ export default function Home() {
     // `if (!ready) return`, so a correct code typed while the socket was still
     // connecting — or before a name was filled in — did nothing at all, and the
     // button read as dead.
-    if (trimmed.length < 2) return setError('Pick a display name of at least 2 characters first.');
+    if (trimmed.length < 2) return needName('Pick a display name of at least 2 characters first.');
     setError('');
     runOrQueue('join', () => joinRoom(target, trimmed, onResult('join')));
+  };
+
+  /**
+   * Refuse an action that needs a name — but make the refusal *seen*. The old
+   * behaviour only wrote to the bottom error strip, which a first-time visitor
+   * scrolling near the buttons never connected to the empty name box above, so
+   * the button read as broken. Here we also scroll the field into view, focus
+   * it and ring it, so it is obvious where to type.
+   */
+  const needName = (message: string) => {
+    setError(message);
+    setNameAlert(true);
+    nameRef.current?.focus();
+    nameRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => setNameAlert(false), 2600);
   };
 
   /**
@@ -139,7 +159,7 @@ export default function Home() {
    * so the button is deliberately gated on the same rule as joining a real room.
    */
   const onDemo = () => {
-    if (trimmed.length < 2) return setError('Enter a display name first, then open the demo room.');
+    if (trimmed.length < 2) return needName('Type your display name in the box above first — then tap 🎉 Demo room again.');
     setError('');
     rememberUsername(trimmed);
     navigate(`/room/${DEMO_ROOM_CODE}`);
@@ -171,9 +191,10 @@ export default function Home() {
       </header>
 
       <section className="home__card">
-        <label className="field">
+        <label className={`field ${nameAlert ? 'field--alert' : ''}`}>
           <span className="field__label">Display name</span>
           <input
+            ref={nameRef}
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="How the room will see you"

@@ -2346,3 +2346,22 @@ body {
   box-shadow: 0 12px 28px rgba(124, 92, 255, 0.40);
 }
 
+/* A name is required before Demo/Join/Create. A refusal that only prints in the
+   bottom strip is easy to miss, so we also ring + nudge the name box itself to
+   pull the eye up to where they should type. */
+.field--alert input {
+  border-color: #ff4757 !important;
+  box-shadow: 0 0 0 3px rgba(255, 71, 87, 0.38);
+  animation: nameNudge 0.55s ease;
+}
+.field--alert .field__label {
+  color: #ff8f9a;
+}
+@keyframes nameNudge {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
