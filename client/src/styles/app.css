@@ -2490,3 +2490,63 @@ body {
   }
 }
 
+/* ==========================================================================
+   Brand sound-wave — a live equaliser that streams out of the "Watch Party"
+   title and fades into the page, so the landing screen always feels on-air.
+   Purely decorative: 18 thin bars pulse with a staggered delay that reads as a
+   wave travelling rightward, and a mask fades the tail to nothing so it looks
+   like the sound dissipates into the room. It loops forever, and is frozen for
+   anyone who prefers reduced motion.
+   ========================================================================== */
+.home__brand > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.home__brandline {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.brand-wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 26px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 360px;
+  /* fade the tail out so the wave disappears into the page */
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 42%, transparent 96%);
+  mask-image: linear-gradient(to right, #000 0, #000 42%, transparent 96%);
+}
+.brand-wave i {
+  display: block;
+  flex: 1 1 0;
+  min-width: 2px;
+  height: 100%;
+  border-radius: 3px;
+  transform-origin: center;
+  background: linear-gradient(180deg, var(--accent), var(--violet));
+  box-shadow: 0 0 10px rgba(255, 71, 87, 0.35);
+  animation: brandWave 1s ease-in-out infinite;
+  will-change: transform;
+}
+/* Stagger along the row so the pulse reads as a wave moving outward. Negative
+   delays start each bar mid-cycle, so it already looks alive on first paint. */
+.brand-wave i:nth-child(6n+1) { animation-delay: 0s;     animation-duration: 1.05s; }
+.brand-wave i:nth-child(6n+2) { animation-delay: -0.12s; animation-duration: 0.9s; }
+.brand-wave i:nth-child(6n+3) { animation-delay: -0.24s; animation-duration: 1.15s; }
+.brand-wave i:nth-child(6n+4) { animation-delay: -0.36s; animation-duration: 0.95s; }
+.brand-wave i:nth-child(6n+5) { animation-delay: -0.48s; animation-duration: 1.1s; }
+.brand-wave i:nth-child(6n+6) { animation-delay: -0.6s;  animation-duration: 0.88s; }
+@keyframes brandWave {
+  0%, 100% { transform: scaleY(0.22); }
+  50%      { transform: scaleY(1); }
+}
+@media (max-width: 560px) {
+  .brand-wave { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-wave i { animation: none; transform: scaleY(0.6); }
+}
+

@@ -284,7 +284,16 @@ export default function Home() {
           <img src="/favicon.svg" alt="" width="48" height="48" />
         </span>
         <div>
-          <h1>Watch Party</h1>
+          <div className="home__brandline">
+            <h1>Watch Party</h1>
+            {/* A live sound-wave that streams out of the title and fades into the
+                page — decorative, pure CSS, looping so the room feels on-air. */}
+            <span className="brand-wave" aria-hidden>
+              {Array.from({ length: 18 }).map((_, i) => (
+                <i key={i} />
+              ))}
+            </span>
+          </div>
           <p>YouTube, in step with everyone in the room.</p>
         </div>
       </header>
