@@ -1831,8 +1831,8 @@ a {
    --------------------------------------------------------------------------
    Appended after the Premium layer so it wins the cascade at equal
    specificity. It only re-themes existing selectors and styles the three
-   signature live features (sync pulse, presence orbit, activity feed) plus the
-   Activity tab. No markup contract the server relies on is touched, so the RBAC
+   signature live feature (the sync heartbeat pulse). No markup contract the
+   server relies on is touched, so the RBAC
    and persistence suites are unaffected.
    ========================================================================== */
 
@@ -1847,10 +1847,6 @@ a {
 }
 @keyframes pulseFlash {
   0% { opacity: 0; } 18% { opacity: 0.85; } 100% { opacity: 0; }
-}
-@keyframes orbitBob {
-  0%, 100% { transform: translate(-50%, -50%) translateY(0); }
-  50%      { transform: translate(-50%, -50%) translateY(-5px); }
 }
 @keyframes rimShimmer {
   to { filter: hue-rotate(360deg); }
@@ -1954,39 +1950,6 @@ body {
   animation: pulseFlash 0.9s ease-out forwards;
 }
 
-/* ---- LIVE FEATURE: presence orbit (the room's faces ringed around the frame) ---- */
-.stage__orbit {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  pointer-events: none;
-}
-.orbit__chip {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  animation: orbitBob 4.5s ease-in-out infinite;
-}
-.orbit__avatar {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 9px;
-  font-weight: 800;
-  color: #0b0d12;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5), 0 6px 16px rgba(0, 0, 0, 0.55);
-}
-.orbit__chip--moderator .orbit__avatar {
-  box-shadow: 0 0 0 2px #b7a6ff, 0 0 16px rgba(124, 92, 255, 0.55);
-}
-.orbit__chip--host .orbit__avatar {
-  width: 33px;
-  height: 33px;
-  font-size: 11px;
-  box-shadow: 0 0 0 2px #ffd27d, 0 0 20px rgba(255, 165, 2, 0.6);
-}
-
 /* ---- control bar + reactions: floating glass ---- */
 .controls {
   background: linear-gradient(180deg, rgba(24, 28, 44, 0.72), rgba(12, 14, 24, 0.74));
@@ -2067,97 +2030,6 @@ body {
   background: linear-gradient(135deg, rgba(124, 92, 255, 0.14), rgba(255, 71, 87, 0.07));
   border-color: rgba(124, 92, 255, 0.42);
 }
-
-/* ---- LIVE FEATURE: the activity feed (new tab in the rail) ---- */
-.activity {
-  display: grid;
-  gap: 2px;
-}
-.activity--empty {
-  display: grid;
-  gap: 6px;
-  padding: 22px 14px;
-  text-align: center;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-  color: var(--muted);
-}
-.activity--empty p {
-  color: var(--text);
-  font-weight: 600;
-}
-.activity--empty span {
-  font-size: 12.5px;
-  line-height: 1.5;
-}
-.activity__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 1px;
-}
-.act {
-  display: grid;
-  grid-template-columns: 14px auto 1fr;
-  align-items: start;
-  gap: 9px;
-  padding: 8px 6px;
-  border-radius: 10px;
-  animation: feedIn 0.4s var(--ease) both;
-}
-.act:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
-.act__rail {
-  display: grid;
-  justify-items: center;
-}
-.act__dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  margin-top: 5px;
-  position: relative;
-  background: var(--surface-3);
-}
-.act__dot::before {
-  content: '';
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  width: 1px;
-  height: 22px;
-  background: var(--line);
-  transform: translateX(-50%);
-}
-.act:last-child .act__dot::before {
-  display: none;
-}
-.act__icon {
-  font-size: 12px;
-  line-height: 1.5;
-  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.18));
-}
-.act__body {
-  min-width: 0;
-}
-.act__text {
-  font-size: 12.5px;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.act__time {
-  font-size: 10.5px;
-  color: var(--muted-2);
-  font-style: normal;
-}
-.act--info .act__dot { background: var(--violet); box-shadow: 0 0 9px rgba(124, 92, 255, 0.6); }
-.act--success .act__dot { background: var(--ok); box-shadow: 0 0 9px rgba(46, 213, 115, 0.6); }
-.act--warn .act__dot { background: var(--warn); box-shadow: 0 0 9px rgba(255, 165, 2, 0.6); }
-.act--error .act__dot { background: var(--accent); box-shadow: 0 0 9px rgba(255, 71, 87, 0.6); }
 
 /* ---- landing hero: bigger gradient wordmark + a floating glass card ---- */
 .home__brand h1 {

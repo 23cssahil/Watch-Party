@@ -141,11 +141,6 @@ export function useSocket(): void {
       const meId = store.getState().me?.userId;
       if (!sync.actor) return;
 
-      const label = sync.actor.userId === meId ? 'You' : sync.actor.username;
-      const verb =
-        sync.source === 'approved_request'
-          ? 'request approved'
-          : describeSync(sync, previousVideo, previousPosition);
       if (sync.actor.userId !== meId) {
         store.getState().pushToast(
           sync.source === 'approved_request'
@@ -154,18 +149,12 @@ export function useSocket(): void {
           'info'
         );
       }
-      store.getState().pushActivity({
-        kind: 'playback',
-        tone: 'info',
-        text: `${label} ${verb}`,
-      });
     };
 
     const onUserJoined = ({ participants, username, userId }: UserJoinedPayload) => {
       store.getState().setHostFromList(participants);
       if (userId !== store.getState().me?.userId) {
         store.getState().pushToast(`${username} joined the room`, 'info');
-        store.getState().pushActivity({ kind: 'join', tone: 'success', text: `${username} joined` });
       }
     };
 
@@ -173,7 +162,6 @@ export function useSocket(): void {
       store.getState().setHostFromList(participants);
       if (userId !== store.getState().me?.userId) {
         store.getState().pushToast(`${username} left the room`, 'info');
-        store.getState().pushActivity({ kind: 'leave', tone: 'info', text: `${username} left` });
       }
     };
 
@@ -187,10 +175,8 @@ export function useSocket(): void {
       store.getState().setHostFromList(participants);
       if (userId === store.getState().me?.userId) {
         store.getState().pushToast(`You are now ${role} (set by ${assignedBy})`, 'success');
-        store.getState().pushActivity({ kind: 'role', tone: 'success', text: `You are now ${role}` });
       } else {
         store.getState().pushToast(`${username} is now ${role}`, 'info');
-        store.getState().pushActivity({ kind: 'role', tone: 'info', text: `${username} is now ${role}` });
       }
     };
 
@@ -200,11 +186,6 @@ export function useSocket(): void {
         automatic ? `Host left — ${username} took over` : `${username} is the new host`,
         'success'
       );
-      store.getState().pushActivity({
-        kind: 'role',
-        tone: 'success',
-        text: automatic ? `Host left — ${username} took over` : `${username} is the new host`,
-      });
     };
 
     const onParticipantRemoved = ({
@@ -218,11 +199,6 @@ export function useSocket(): void {
         const text =
           reason === 'removed' ? `${username} was removed by the host` : `${username} left`;
         store.getState().pushToast(text, 'info');
-        store.getState().pushActivity({
-          kind: reason === 'removed' ? 'system' : 'leave',
-          tone: reason === 'removed' ? 'warn' : 'info',
-          text,
-        });
       }
     };
 
@@ -263,14 +239,6 @@ export function useSocket(): void {
 
     const onChat = ({ message }: ChatPayload) => {
       store.getState().addChat(message);
-      // Fold the line into the live feed too, so the Activity tab reads like the
-      // room's story and not just a controls log. Truncated to keep rows tidy.
-      const snippet = message.text.length > 48 ? `${message.text.slice(0, 47)}…` : message.text;
-      store.getState().pushActivity({
-        kind: 'chat',
-        tone: 'info',
-        text: `${message.username}: ${snippet}`,
-      });
     };
 
     const onReaction = ({ emoji, username }: ReactionPayload) =>

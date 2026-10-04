@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useRoomStore } from '../store/roomStore';
 import { useYouTubeSync } from '../hooks/useYouTubeSync';
 import { requestSync } from '../actions';
-import { colorFor, initials } from '../lib/format';
 import ControlBar from './ControlBar';
 import ReactionBar from './ReactionBar';
 
@@ -50,20 +49,8 @@ export default function VideoStage() {
   const sync = useRoomStore((state) => state.sync);
   const status = useRoomStore((state) => state.status);
   const syncPulse = useRoomStore((state) => state.syncPulse);
-  const participants = useRoomStore((state) => state.participants);
   const player = useYouTubeSync(containerRef);
   const [isFullscreen, setIsFullscreen] = useState(false);
-
-  // Presence orbit: the people in the room, arranged around the frame. Capped so
-  // a crowded party stays legible rather than turning into a ring of dots; the
-  // full roster always lives in the People tab. Coordinates are computed here (not
-  // in CSS) so we do not depend on the newer CSS trig functions being supported —
-  // each chip lands on an ellipse just inside the frame edge, host first at top.
-  const orbitTotal = Math.min(participants.length, 10);
-  const orbit = participants.slice(0, 10).map((person, index) => {
-    const angle = (index / Math.max(orbitTotal, 1)) * Math.PI * 2 - Math.PI / 2;
-    return { person, angle };
-  });
 
   // Mirror the browser's real fullscreen state, so Esc (and the OS gesture that
   // leaves fullscreen without a click) keeps the button's icon honest rather than
@@ -99,32 +86,6 @@ export default function VideoStage() {
           is 0 (no change has landed yet), so the stage sits calm until the room moves.
         */}
         {syncPulse > 0 && <span key={syncPulse} className="stage__pulse" aria-hidden />}
-
-        {/*
-          Presence orbit — a decorative ring of who is watching, driven purely by
-          the store roster. Each chip is placed on an ellipse just inside the frame
-          edge via left/top percentages. pointer-events: none, so it never
-          intercepts clicks meant for the video.
-        */}
-        {orbit.length > 1 && (
-          <div className="stage__orbit" aria-hidden>
-            {orbit.map(({ person, angle }) => (
-              <span
-                key={person.userId}
-                className={`orbit__chip orbit__chip--${person.role}`}
-                style={{
-                  left: `${50 + Math.cos(angle) * 47}%`,
-                  top: `${50 + Math.sin(angle) * 45}%`,
-                }}
-                title={`${person.username} · ${person.role}`}
-              >
-                <span className="orbit__avatar" style={{ background: colorFor(person.username) }}>
-                  {initials(person.username)}
-                </span>
-              </span>
-            ))}
-          </div>
-        )}
 
         {/*
           Transparent blocker sitting on top of the YouTube iframe.
