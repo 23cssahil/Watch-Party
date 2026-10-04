@@ -4,6 +4,7 @@ import { useYouTubeSync } from '../hooks/useYouTubeSync';
 import { requestSync } from '../actions';
 import ControlBar from './ControlBar';
 import ReactionBar from './ReactionBar';
+import BeatVisualizer from './BeatVisualizer';
 
 /**
  * Vendor-safe Fullscreen API calls.
@@ -51,6 +52,16 @@ export default function VideoStage() {
   const syncPulse = useRoomStore((state) => state.syncPulse);
   const player = useYouTubeSync(containerRef);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // The beat visualiser is a purely local, cosmetic preference, so it lives in
+  // component state (persisted to localStorage) rather than the room store — it
+  // must never leak into the shared, server-authoritative room state.
+  const [beatOn, setBeatOn] = useState(() => localStorage.getItem('watch-party:beat') !== 'off');
+  const toggleBeat = () =>
+    setBeatOn((on) => {
+      const next = !on;
+      localStorage.setItem('watch-party:beat', next ? 'on' : 'off');
+      return next;
+    });
 
   // Mirror the browser's real fullscreen state, so Esc (and the OS gesture that
   // leaves fullscreen without a click) keeps the button's icon honest rather than
@@ -78,6 +89,11 @@ export default function VideoStage() {
     <section className="stage" ref={stageRef}>
       <div className="stage__frame">
         <div ref={containerRef} className="stage__player" />
+
+        {/* Synthetic beat visualiser, layered over the video. Runs only while the
+            effect is on and the room is actually playing; it never intercepts
+            clicks (the click-blocker below still owns the video surface). */}
+        <BeatVisualizer active={beatOn && player.playing} />
 
         {/*
           Live sync pulse. A real playback change bumps `syncPulse` in the store;
@@ -159,6 +175,15 @@ export default function VideoStage() {
 
       <div className="stage__under">
         <ReactionBar />
+        <button
+          type="button"
+          className={`btn btn--tiny stage__beat ${beatOn ? 'stage__beat--on' : ''}`}
+          onClick={toggleBeat}
+          aria-pressed={beatOn}
+          title="Toggle the live beat visualiser"
+        >
+          🎵 Beats {beatOn ? 'on' : 'off'}
+        </button>
         <button type="button" className="btn btn--tiny stage__resync" onClick={requestSync}>
           Re-sync me
         </button>

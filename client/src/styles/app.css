@@ -2174,3 +2174,32 @@ body {
   }
 }
 
+
+/* ==========================================================================
+   Beat visualiser — synthetic, music-reactive overlay on the stage.
+   --------------------------------------------------------------------------
+   A canvas laid over the YouTube iframe (see BeatVisualizer.tsx). It sits at
+   z-index 1: above the video, but below the transparent click-blocker, the
+   loading/error overlays, the sync pulse and the fullscreen button — so it can
+   never hide a control or swallow a click. pointer-events: none keeps the video
+   surface fully interactive. The canvas declines to animate under
+   prefers-reduced-motion, matching the global kill-switch above.
+   ========================================================================== */
+.beat {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
+.stage__beat {
+  letter-spacing: 0.2px;
+}
+.stage__beat--on {
+  color: #fff;
+  border-color: rgba(124, 92, 255, 0.55);
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.22), rgba(255, 71, 87, 0.16));
+  box-shadow: 0 0 18px -6px rgba(124, 92, 255, 0.8);
+}
+
