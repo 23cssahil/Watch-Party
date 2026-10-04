@@ -2203,3 +2203,114 @@ body {
   box-shadow: 0 0 18px -6px rgba(124, 92, 255, 0.8);
 }
 
+
+/* ==========================================================================
+   Joyful redesign — landing page + the shared background.
+   --------------------------------------------------------------------------
+   Three asks, all met by re-theming existing selectors only (no markup
+   contract is touched, so the Room layout, the beat visualiser and every
+   server-facing behaviour keep working): fill the viewport instead of
+   floating as a small boxed card, drop the nested card-in-card-in-pane
+   chrome that read as a cartoon form, and give the app a genuinely festive
+   colour. Because the room already sits on the same transparent body mesh,
+   the new background flows into a live party for free — which is exactly
+   the "same joyful colour inside the room" the request asked for.
+   ========================================================================== */
+
+/* ---- the festive mesh: a warmer, brighter aurora the whole app sits on ---- */
+body {
+  background-color: #0b0616;
+  background-image:
+    radial-gradient(48% 44% at 16% 20%, rgba(255, 99, 168, 0.50), transparent 60%),
+    radial-gradient(44% 42% at 84% 14%, rgba(255, 168, 66, 0.42), transparent 60%),
+    radial-gradient(52% 46% at 78% 84%, rgba(140, 96, 255, 0.48), transparent 62%),
+    radial-gradient(46% 44% at 18% 82%, rgba(48, 205, 255, 0.40), transparent 60%),
+    radial-gradient(40% 40% at 52% 50%, rgba(64, 224, 150, 0.18), transparent 66%);
+  background-size: 190% 190%, 185% 185%, 210% 210%, 200% 200%, 165% 165%;
+  background-repeat: no-repeat;
+  animation: meshDrift 30s ease-in-out infinite alternate;
+}
+
+/* ---- landing fills the viewport as one flat page, not a floating card ---- */
+.home {
+  min-height: 100vh;
+  max-width: 1120px;
+  padding: 48px 26px 60px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  overflow: visible;
+}
+/* a soft centre scrim keeps text legible over the bright mesh — it has no
+   border, fill or corners, so it reads as light, never as another box */
+.home::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(72% 62% at 50% 46%, rgba(7, 4, 16, 0.66), rgba(7, 4, 16, 0.30) 60%, transparent 84%);
+}
+/* the old landing-only aurora is redundant now the body mesh does it better */
+.home__glow { display: none; }
+
+.home__brand { margin-bottom: 26px; }
+.home__brand h1 { font-size: 48px; letter-spacing: -1.4px; }
+.home__brand p { font-size: 15px; text-shadow: 0 1px 14px rgba(7, 4, 16, 0.8); }
+
+/* the card is now only a layout wrapper — no border, fill, blur or shadow */
+.home__card {
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 0;
+  gap: 28px;
+}
+.home__card::before { display: none; }
+
+/* the two actions become flat columns split by a hairline, not two boxes */
+.home__split { gap: 0; }
+.pane {
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 4px 38px;
+  gap: 15px;
+  transition: none;
+}
+.pane:hover { transform: none; border-color: transparent; box-shadow: none; }
+.pane + .pane { border-left: 1px solid rgba(255, 255, 255, 0.12); }
+.pane h2 { font-size: 21px; text-shadow: 0 1px 14px rgba(7, 4, 16, 0.8); }
+.pane__hint { font-size: 13.5px; text-shadow: 0 1px 12px rgba(7, 4, 16, 0.8); }
+.field__label { text-shadow: 0 1px 10px rgba(7, 4, 16, 0.75); }
+
+/* features: a flat, colour-ruled strip rather than three glass tiles */
+.home__features { margin-top: 30px; gap: 10px; }
+.home__features li {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 15px 20px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-top: 2px solid rgba(140, 96, 255, 0.5);
+  transition: none;
+}
+.home__features li::before { display: none; }
+.home__features li:hover { transform: none; box-shadow: none; }
+.home__features strong { font-size: 14.5px; }
+.home__features span { text-shadow: 0 1px 12px rgba(7, 4, 16, 0.8); }
+
+/* phones: stack the flat columns and move the divider to a top rule */
+@media (max-width: 979px) {
+  .home { padding: 40px 20px 48px; }
+  .home__brand h1 { font-size: 38px; }
+  .pane { padding: 20px 2px; }
+  .pane + .pane { border-left: none; border-top: 1px solid rgba(255, 255, 255, 0.12); }
+}
+
