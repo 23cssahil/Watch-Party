@@ -53,6 +53,8 @@ export default function BeatVisualizer({ active }: Props) {
     if (!ctx) return;
 
     const levels = new Float32Array(BAR_COUNT);
+    const barX = new Float32Array(BAR_COUNT);
+    const barTop = new Float32Array(BAR_COUNT);
     const particles: Particle[] = [];
     let energy = 0;
     let raf = 0;
@@ -82,6 +84,7 @@ export default function BeatVisualizer({ active }: Props) {
       // Room gone quiet and the last of the energy has bled out: clear once and
       // park. The `active` effect above restarts us on the next beat.
       if (target === 0 && energy < 0.01) {
+        particles.length = 0; // don't strand half-risen bubbles for the next play
         ctx.clearRect(0, 0, w, h);
         raf = 0;
         return;
@@ -106,20 +109,26 @@ export default function BeatVisualizer({ active }: Props) {
       ctx.fillStyle = light;
       ctx.fillRect(0, 0, w, h);
 
-      // 2. Equalizer bars — each a blend of oscillators so the shape wanders like
-      //    a real spectrum instead of repeating a fixed pattern.
-      const bw = w / BAR_COUNT;
+      // 2. Equalizer bars — split into two banks that flank an empty centre, so
+      //    the beats sit beside the video on the left and right instead of
+      //    stretching across it. Each bank arcs on its own for a lively shape.
+      const half = BAR_COUNT / 2;
+      const gapFrac = 0.4; // centre band kept clear for the picture
+      const bankW = (w * (1 - gapFrac)) / 2;
+      const slot = bankW / half;
       const barMax = h * 0.44;
       for (let i = 0; i < BAR_COUNT; i++) {
         const a = 0.5 + 0.5 * Math.sin(t * (1.6 + i * 0.33) + i * 0.7);
         const b = 0.5 + 0.5 * Math.sin(t * (0.6 + i * 0.11) + i * 1.7);
-        const tilt = 0.55 + 0.45 * Math.sin((i / BAR_COUNT) * Math.PI); // brighter mid
+        const idx = i < half ? i : i - half;
+        const tilt = 0.55 + 0.45 * Math.sin((idx / (half - 1)) * Math.PI); // arc per bank
         let level = (0.2 + 0.85 * a * b) * (0.45 + 0.95 * kick * strong) * drop * tilt;
         level = Math.min(1, level * energy);
         levels[i] += (level - levels[i]) * 0.35;
         const bh = Math.max(2, levels[i] * barMax);
-        const x = i * bw + bw * 0.18;
-        const barW = bw * 0.64;
+        const bankStart = i < half ? 0 : w - bankW;
+        const x = bankStart + idx * slot + slot * 0.18;
+        const barW = slot * 0.64;
         const grad = ctx.createLinearGradient(0, h, 0, h - bh);
         grad.addColorStop(0, `rgba(46, 213, 115, ${0.85 * energy})`);
         grad.addColorStop(0.5, `rgba(124, 92, 255, ${0.9 * energy})`);
@@ -127,22 +136,28 @@ export default function BeatVisualizer({ active }: Props) {
         ctx.fillStyle = grad;
         traceBar(ctx, x, h - bh, barW, bh, Math.min(barW / 2, 3));
         ctx.fill();
+        barX[i] = x + barW / 2; // crest centre, used as a bubble spawn point
+        barTop[i] = h - bh;
       }
 
-      // 3. Sparks — emitted on the beat, rising and fading: the concert layer.
+      // 3. Bubbles — released from the crest of a bar as the beat peaks, then
+      //    they rise the full height of the stage and fade out at the top. No
+      //    gravity pulls them back, so a bubble always reaches the top instead
+      //    of stalling halfway.
       if (beatIndex !== lastBeat) {
         lastBeat = beatIndex;
         if (energy > 0.25 && particles.length < MAX_PARTICLES) {
           const n = 2 + Math.floor(Math.random() * 3);
           for (let k = 0; k < n; k++) {
+            const src = Math.floor(Math.random() * BAR_COUNT);
             particles.push({
-              x: Math.random() * w,
-              y: h - 4,
-              vx: (Math.random() - 0.5) * 20,
-              vy: -(50 + Math.random() * 90),
-              r: 1 + Math.random() * 2.4,
+              x: barX[src],
+              y: barTop[src],
+              vx: (Math.random() - 0.5) * 0.05 * w,
+              vy: -(0.5 + Math.random() * 0.4) * h, // clears the top in ~1.4-2s
+              r: 1.6 + Math.random() * 2.6,
               life: 1,
-              hue: 265 + Math.random() * 70, // violet → pink
+              hue: 265 + Math.random() * 70, // violet -> pink
             });
           }
         }
@@ -152,13 +167,14 @@ export default function BeatVisualizer({ active }: Props) {
         const p = particles[i];
         p.x += p.vx * dt;
         p.y += p.vy * dt;
-        p.vy += 12 * dt; // a touch of gravity eases them back down
-        p.life -= dt * 0.7;
-        if (p.life <= 0 || p.y < 0) {
+        p.life -= dt * 0.4;
+        if (p.y < -p.r || p.life <= 0) {
           particles.splice(i, 1);
           continue;
         }
-        ctx.fillStyle = `hsla(${p.hue}, 95%, 68%, ${p.life * 0.9 * energy})`;
+        // Dissolve over the top ~22% so the bubble "disappears at the top".
+        const topFade = Math.max(0, Math.min(1, p.y / (h * 0.22)));
+        ctx.fillStyle = `hsla(${p.hue}, 95%, 68%, ${p.life * 0.9 * energy * topFade})`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
         ctx.fill();
