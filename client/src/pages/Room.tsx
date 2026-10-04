@@ -5,6 +5,7 @@ import { getIdentity } from '../socket';
 import { useRoomStore } from '../store/roomStore';
 import VideoStage from '../components/VideoStage';
 import SidePanel from '../components/SidePanel';
+import ChatPanel from '../components/ChatPanel';
 import ReactionLayer from '../components/ReactionLayer';
 import RemovedScreen from '../components/RemovedScreen';
 import RoomUnavailable from '../components/RoomUnavailable';
@@ -167,6 +168,25 @@ export default function Room() {
 
       <div className={`room__body ${panelOpen ? 'room__body--panel' : ''}`}>
         <VideoStage />
+
+        {/*
+          Always-on live chat, docked right beside the video. It is the very
+          same ChatPanel that the drawer carries on phones — one store, one
+          socket path — so anything anyone types lands here for every client
+          the instant the server broadcasts it. The tabbed SidePanel above it
+          became a slide-over drawer so this rail can own the right edge.
+        */}
+        <aside className="livechat" aria-label="Live chat">
+          <header className="livechat__head">
+            <span className="livechat__pulse" aria-hidden />
+            <h2>Live chat</h2>
+            <span className="livechat__count">{participants.length} watching</span>
+          </header>
+          <div className="livechat__body">
+            <ChatPanel />
+          </div>
+        </aside>
+
         <SidePanel open={panelOpen} onClose={closePanel} />
       </div>
 

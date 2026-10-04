@@ -2182,3 +2182,123 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* ==========================================================================
+   Live chat rail — video left, always-on chat right.
+   --------------------------------------------------------------------------
+   The room grid's second column becomes a dedicated chat rail carrying the
+   same ChatPanel the drawer uses (one store, one socket path). The tabbed
+   SidePanel stops occupying a grid track and turns into a slide-over drawer
+   at every width — the People button already toggles it, and the close ✕
+   becomes permanent. Below 980px the rail hides again and the drawer's Chat
+   tab covers phones exactly as before.
+
+   Appended after everything (including the reduced-motion block, whose
+   !important still wins), because these rules must outrank the earlier
+   media-query defaults with equal specificity.
+   ========================================================================== */
+
+.room__body {
+  grid-template-columns: minmax(0, 1fr) var(--panel-width);
+}
+
+.livechat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(180deg, rgba(18, 22, 34, 0.66), rgba(9, 11, 19, 0.72));
+  backdrop-filter: blur(28px) saturate(165%);
+  -webkit-backdrop-filter: blur(28px) saturate(165%);
+  box-shadow: -30px 0 70px -46px rgba(0, 0, 0, 0.85);
+}
+.livechat__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(8, 10, 16, 0.4);
+}
+.livechat__head h2 {
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+/* the green "live" pip — same language as the room-bar connection dot */
+.livechat__pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 10px rgba(46, 213, 115, 0.8);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.livechat__count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  padding: 2px 9px;
+}
+.livechat__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  padding: 14px 16px 16px;
+}
+/* ChatPanel was built for the drawer's scrolling body; in the rail it owns
+   the full column height, with only its message list scrolling. */
+.livechat .chat {
+  flex: 1;
+  min-height: 0;
+  gap: 10px;
+}
+.livechat .chat__scroll {
+  min-height: 0;
+}
+.livechat .chat__form {
+  background: transparent;
+}
+/* every arriving message slides in — the "live" half of live chat */
+.livechat .msg {
+  animation: feedIn 0.3s var(--ease) both;
+}
+
+/* the tabbed panel is now a drawer at every width, not just on phones */
+@media (min-width: 980px) {
+  .panel {
+    position: fixed;
+    z-index: 50;
+    top: var(--bar-height);
+    right: 0;
+    bottom: 0;
+    width: min(380px, 92vw);
+    transform: translateX(100%);
+    transition: transform 0.24s ease;
+    box-shadow: -14px 0 40px rgba(0, 0, 0, 0.5);
+  }
+  .panel--open {
+    transform: translateX(0);
+  }
+  .panel__close {
+    display: grid;
+  }
+}
+
+/* phones keep the old shape: no rail, one column, drawer chat */
+@media (max-width: 979px) {
+  .room__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .livechat {
+    display: none;
+  }
+}
+
