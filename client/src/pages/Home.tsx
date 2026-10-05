@@ -224,9 +224,9 @@ export default function Home() {
   const demoRoom: LiveRoom =
     liveRooms.find((room) => room.isDemo) ?? {
       code: DEMO_ROOM_CODE,
-      host: 'Despacito',
+      host: 'Doraemon',
       viewers: 0,
-      title: 'Despacito — Luis Fonsi ft. Daddy Yankee',
+      title: 'Doraemon Title Song',
       isDemo: true,
     };
   const rows: LiveRoom[] = [demoRoom, ...liveRooms.filter((room) => !room.isDemo)];
@@ -329,7 +329,7 @@ export default function Home() {
                   className="btn btn--demo"
                   disabled={busy !== null}
                   onClick={onDemo}
-                  title="Open the always-on demo party — Despacito, everyone joins as a viewer"
+                  title="Open the always-on demo party - Doraemon songs, everyone joins as a viewer"
                 >
                   🎉 Demo room
                 </button>

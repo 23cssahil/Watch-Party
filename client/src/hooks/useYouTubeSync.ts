@@ -37,6 +37,11 @@ const SUPPRESS_WINDOW_MS = 1200;
 const DRIFT_CHECK_MS = 1000;
 const POSITION_TICK_MS = 250;
 
+// The demo room runs its own local playlist. When a track ends the client moves
+// to the next one and loops back at the end, so the always-on demo never sits on
+// a finished screen. This is demo-only; a normal room leaves what plays to the host.
+const DEMO_PLAYLIST = ['iwncGYFPxmU', 'QyJ6WJsjvsA'];
+
 export interface YouTubeSyncState {
   ready: boolean;
   error: string | null;
@@ -164,6 +169,21 @@ export function useYouTubeSync(
               // A state change is when a newly loaded video becomes queryable, so
               // grab the title here too rather than lagging a whole action behind.
               readTitle();
+
+              // Demo room only: playback is local, so when a track finishes we load
+              // the next one ourselves. Normal rooms ignore ENDED, since the host
+              // decides what plays next.
+              if (event.data === api.PlayerState.ENDED && useRoomStore.getState().isDemo) {
+                const current = playerRef.current?.getVideoData?.()?.video_id ?? '';
+                const at = DEMO_PLAYLIST.indexOf(current);
+                const nextId = DEMO_PLAYLIST[(at + 1 + DEMO_PLAYLIST.length) % DEMO_PLAYLIST.length];
+                if (nextId) {
+                  suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
+                  setDuration(0);
+                  playerRef.current?.loadVideoById(nextId);
+                  playerRef.current?.playVideo();
+                }
+              }
             },
             onError: (event) => {
               const message = describeYouTubeError(Number(event.data));

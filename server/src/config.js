@@ -25,8 +25,9 @@ const config = {
   // random room can't collide with it.
   demo: {
     code: (process.env.DEMO_ROOM_CODE || 'DEMO24').toUpperCase().replace(/[^A-Z0-9]/g, ''),
-    // "Despacito" — Luis Fonsi ft. Daddy Yankee. Set by default for the demo.
-    videoId: process.env.DEMO_VIDEO_ID || 'kJQP7kiw5Fk',
+    // First track of the demo playlist (Doraemon title song). The client cycles
+    // through the rest when a track ends, so this only has to be the opening one.
+    videoId: process.env.DEMO_VIDEO_ID || 'iwncGYFPxmU',
   },
 
   room: {

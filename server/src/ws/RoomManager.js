@@ -255,9 +255,9 @@ class RoomManager {
     const live = this.rooms.get(normalizeRoomCode(config.demo.code));
     const demo = {
       code: config.demo.code,
-      host: 'Despacito',
+      host: 'Doraemon',
       viewers: live ? live.size : 0,
-      title: live?.videoTitle || 'Despacito — Luis Fonsi ft. Daddy Yankee',
+      title: live?.videoTitle || 'Doraemon Title Song',
       isDemo: true,
     };
     return [demo, ...rows].slice(0, limit + 1);
