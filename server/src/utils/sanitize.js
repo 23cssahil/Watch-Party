@@ -10,8 +10,8 @@ function cleanText(input, maxLength) {
   return input
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001F\u007F]/g, '')
-    // Angle brackets are neutralised so a username can never be mistaken for
-    // markup by any renderer that later consumes it.
+    // Remove angle brackets so a username can't be mistaken for HTML by anything
+    // that renders it later.
     .replace(/[<>]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
@@ -37,9 +37,9 @@ function sanitizeReaction(emoji) {
 }
 
 /**
- * A video title, i.e. text a client read off the YouTube player and reported.
- * Same hygiene as chat, and for the same reason: it ends up rendered next to
- * other people's names and stored in the database.
+ * A video title, i.e. text a client read off the YouTube player and sent to us.
+ * Same cleaning as chat, for the same reason: it gets shown next to other
+ * people's names and saved in the database.
  * @param {unknown} title @returns {string}
  */
 function sanitizeTitle(title) {

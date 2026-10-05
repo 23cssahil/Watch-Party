@@ -3,12 +3,11 @@ const config = require('../config');
 const WatchRoom = require('../models/Room');
 
 /**
- * Strip credentials out of a driver error string before it reaches the log.
+ * Remove credentials from a driver error string before it goes into the log.
  *
- * `MONGODB_URI` is a password, and a log line is the one place a secret gets
- * copied from without anyone meaning to. Only the `authority` part of a
- * `scheme://user:pass@host` string is touched, so the host names that actually
- * help debugging stay readable.
+ * `MONGODB_URI` contains a password, and logs are easy to copy/share by accident.
+ * We only replace the `user:pass@` part of a `scheme://user:pass@host` string, so
+ * the host names that actually help with debugging stay readable.
  *
  * @param {string} message
  * @returns {string}
@@ -22,17 +21,17 @@ function redact(message) {
  * Optional persistence layer.
  * ---------------------------------------------------------------------------
  *
- * The assignment marks the database as "optional for MVP", so the realtime
- * feature set must never depend on it. This module therefore returns a
- * no-op adapter when `MONGODB_URI` is unset, and the server boots normally and
- * passes every core requirement with no database at all.
+ * The assignment says the database is "optional for MVP", so the realtime
+ * features must not depend on it. When `MONGODB_URI` isn't set this returns a
+ * no-op adapter, and the server boots fine and meets every core requirement with
+ * no database at all.
  *
- * When it *is* configured, writes are debounced per room. A single seek-drag on
- * a scrubber emits dozens of events; writing each one would be pure load with no
- * benefit, because only the final position matters after a restart.
+ * When it is set, writes are debounced per room. One drag of the scrubber fires
+ * dozens of events, and saving each one would be wasted load since only the final
+ * position matters after a restart.
  *
- * The shape written is `watch_party.rooms` — see `models/Room.js` for why each
- * field is there and why live socket state is deliberately left out.
+ * What gets written is the `watch_party.rooms` shape — see `models/Room.js` for
+ * why each field is there and why live socket state is left out.
  *
  * @returns {{ enabled: boolean, save: Function, load: Function, connect: Function, label: string }}
  */
@@ -54,14 +53,14 @@ function createPersistence() {
   return {
     enabled: true,
     /**
-     * Reported by `/health` and the boot log, and it is a *getter* on purpose.
+     * Shown in `/health` and the boot log, and it's a getter on purpose.
      *
-     * `enabled` describes what was configured; this must describe what is
-     * actually happening, because the most likely production failure is a URI
-     * that is present and wrong — an Atlas Network Access list that does not
-     * include the PaaS egress range is exactly that, and it is invisible from
-     * the outside: the app appears fully working, and rooms quietly die on the
-     * next restart. A static label here would say "mongodb" the whole time.
+     * `enabled` says what was configured; this has to say what's actually
+     * happening, because the most common production problem is a URI that's
+     * present but wrong — e.g. an Atlas Network Access list that doesn't include
+     * the PaaS's IP range. That's invisible from outside: the app looks fine,
+     * and rooms quietly get lost on the next restart. A fixed label would just
+     * say "mongodb" the whole time.
      */
     get label() {
       return mongoose.connection.readyState === 1
@@ -75,14 +74,13 @@ function createPersistence() {
         console.log('[persistence] MongoDB connected — rooms will survive restarts');
         return true;
       } catch (error) {
-        // Degrade rather than die: a misconfigured or unreachable Atlas cluster
-        // must not take the WebSocket server down with it. The name of the most
-        // likely cause is printed, because that is the line worth reading in a
-        // deploy log you are scanning once.
+        // Don't crash, just fall back: a bad or unreachable Atlas cluster must not
+        // take the WebSocket server down with it. We print the most likely cause,
+        // since that's the line worth reading in a deploy log.
         //
-        // The message is scrubbed first. A driver error can quote the connection
-        // string back, and deploy logs are read by more people than a secret
-        // should be shared with — `user:password@` never leaves this process.
+        // The message is scrubbed first, because a driver error can quote the
+        // connection string back, and deploy logs are seen by more people than a
+        // secret should be shared with — `user:password@` never leaves this process.
         console.error(
           '[persistence] MongoDB unavailable, running in-memory for now:',
           redact(error.message),
@@ -112,16 +110,16 @@ function createPersistence() {
               durationSec: Math.round(room.state.duration * 1000) / 1000,
               hostUserId: host ? host.userId : '',
               hostName: host ? host.username : '',
-              // The conversation rides along with the metadata write. It is already
-              // capped to the last 120 lines in Room.chatLog, so this cannot turn a
-              // busy room into an unbounded document, and the 2 s debounce keeps a
-              // chat burst to a handful of writes rather than one per message.
+              // The chat travels with the metadata write. It's already capped to
+              // the last 120 lines in Room.chatLog, so a busy room can't grow the
+              // document without limit, and the 2 s debounce keeps a chat burst to
+              // a few writes instead of one per message.
               chat: room.chatLog,
               lastActiveAt: new Date(),
             },
-            // `$max` rather than `$set`: the peak is a fact about history, so a
-            // room restored after a restart (whose live peak starts at 1) must
-            // never overwrite a bigger number that was recorded earlier.
+            // `$max` instead of `$set`: the peak is a historical fact, so a room
+            // restored after a restart (whose live peak starts at 1) must not
+            // overwrite a bigger number that was saved earlier.
             $max: { peakParticipants: room.peakSize },
           },
           { upsert: true, new: true }
@@ -139,8 +137,8 @@ function createPersistence() {
       try {
         const doc = await WatchRoom.findOne({ roomId }).lean();
         if (!doc) return null;
-        // Shaped for `RoomManager.getOrRestore`, not a raw document: the caller
-        // should not have to know which fields were added to the schema when.
+        // Return it shaped for `RoomManager.getOrRestore`, not as a raw document:
+        // the caller shouldn't have to know which fields were added when.
         return {
           videoId: doc.videoId,
           title: doc.title || '',

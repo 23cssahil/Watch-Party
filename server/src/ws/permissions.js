@@ -1,16 +1,15 @@
 /**
  * ---------------------------------------------------------------------------
- * Role-Based Access Control — the single source of truth for permissions.
+ * Role-based access control. This is the one place permissions are decided.
  * ---------------------------------------------------------------------------
  *
- * This module is deliberately pure (no I/O, no Socket.IO, no classes) so that
- * the permission rules can be unit-tested and, more importantly, so that the
- * *only* place a role is ever consulted is the server. The client never makes
- * an authorisation decision: it receives a capability list derived from
- * `capabilitiesFor()` and merely disables buttons for UX. A crafted socket
- * emission that skips the UI still hits `can()` here and is refused.
+ * It's kept pure on purpose (no I/O, no Socket.IO, no classes) so the rules are
+ * easy to test and so authorization only ever happens on the server. The client
+ * never decides permissions: it gets a capability list from `capabilitiesFor()`
+ * and only uses it to disable buttons for UX. If someone sends a crafted socket
+ * event that skips the UI, it still hits `can()` here and gets refused.
  *
- * Two rules from the assignment meet in this file:
+ * Two requirements from the assignment are handled in this file:
  *
  *   1. "Backend must validate permissions before processing events
  *      (e.g. reject change_video from a Participant)"      ->  `can()`
@@ -18,10 +17,10 @@
  *   2. "Participant must request admin/mod to approve any changes for them
  *      to come into action"  ->  `needsApproval()` + `REQUESTABLE_ACTIONS`
  *
- * Rule 2 refines rule 1: for playback actions a Participant is not silently
- * denied, they are *escalated into a request* that Host/Moderators must
- * approve. For host-only governance actions (assigning roles, kicking people)
- * there is no request path — those are a flat refusal.
+ * Rule 2 builds on rule 1: for playback actions a Participant isn't just denied,
+ * the action turns into a request that a Host/Moderator has to approve. For
+ * host-only governance actions (assigning roles, kicking people) there's no
+ * request path, so those are simply denied.
  */
 
 const ROLES = Object.freeze({
@@ -31,10 +30,10 @@ const ROLES = Object.freeze({
 });
 
 /**
- * The brief lists "Viewer" as "Same as Participant (alias, if you want to
- * distinguish)". We accept the word on the wire but collapse it to
- * `participant` immediately, so no downstream code ever branches on a role
- * that has no distinct behaviour. Fewer roles == fewer permission bugs.
+ * The brief lists "Viewer" as an alias of Participant. We accept the word from
+ * the client but turn it into `participant` right away, so no code downstream
+ * has to handle a role that behaves the same as another. Fewer roles means fewer
+ * places to get permissions wrong.
  */
 const ROLE_ALIASES = Object.freeze({
   viewer: ROLES.PARTICIPANT,
@@ -74,9 +73,9 @@ const PERMISSIONS = Object.freeze({
 });
 
 /**
- * The subset of actions a non-privileged user may *propose*.
- * Governance actions are intentionally excluded — a Participant cannot
- * "request to kick someone", that would defeat the point of the role.
+ * Actions a normal user is allowed to *ask for*. Governance actions are left out
+ * on purpose — letting a Participant "request to kick someone" would defeat the
+ * point of having roles.
  */
 const REQUESTABLE_ACTIONS = new Set(PLAYBACK_ACTIONS);
 
@@ -131,9 +130,9 @@ function isApprover(role) {
 }
 
 /**
- * The capability list handed to a client on join / on every role change.
- * This is what lets the React UI disable controls for restricted users
- * *without* the UI containing any authorisation logic of its own.
+ * The capability list sent to a client on join and on every role change. This
+ * lets the React UI disable controls for restricted users without the UI having
+ * to decide any permissions itself.
  *
  * @param {string} role
  * @returns {{ role: string, allowedActions: string[], requestableActions: string[], canApprove: boolean }}

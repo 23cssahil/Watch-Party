@@ -12,27 +12,19 @@ const RoomManager = require('./ws/RoomManager');
 const MessageHandler = require('./ws/handlers');
 const { normalizeRoomCode } = require('./utils/roomCode');
 
-/**
- * ---------------------------------------------------------------------------
- * Entry point — wires HTTP and WebSocket onto a *single* Node server.
- * ---------------------------------------------------------------------------
- *
- * Sharing one http.Server is the important bit: it means the API and the
- * realtime layer are the same process and the same origin, so there is no
- * second port to open, no second deploy to keep in step, and no cross-origin
- * cookie dance. Socket.IO multiplexes over the same port and only upgrades to
- * a WebSocket where the browser can, falling back to long-polling when a
- * restrictive network blocks the upgrade.
- */
+// App entry point. HTTP (Express) and WebSocket (Socket.IO) run on the same
+// Node server, so the API and the realtime layer share one process and one
+// origin. That means a single port, a single deploy, and Socket.IO can fall
+// back to long-polling on its own when a network blocks the websocket upgrade.
 const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
     origin: config.clientOrigins,
-    credentials: false, // no cookies are used; identity lives in the payload
+    credentials: false, // we don't use cookies; who you are is in the message payload
   },
-  // A 50-person room on a free tier should degrade slowly, not instantly.
+  // Cap the message size so a big room on the free tier doesn't get overwhelmed.
   maxHttpBufferSize: 1e5,
   pingInterval: 20000,
   pingTimeout: 25000,
@@ -43,23 +35,11 @@ const roomManager = new RoomManager(io, persistence);
 const handler = new MessageHandler({ roomManager });
 handler.register(io);
 
-/**
- * Where the built React app lives, if it was built at all.
- *
- * Resolved before the routes because the route table depends on it: Express
- * answers a path with the *first* matching handler, so the service-info route
- * has to know whether the SPA is going to own `/`.
- *
- * Two candidates, in this order:
- *   - `server/client-dist` — what the build step copies in (see the Build
- *     command in the README). Preferred because it makes the directory that
- *     ships self-contained, rather than depending on how the build host lays out
- *     the checkout: Render's log shows the app running from
- *     `/opt/render/project/src/server`, so the sibling `client/dist` does exist
- *     there, but "it should exist" is not something a boot path should rely on.
- *   - `client/dist` — the local monorepo layout, so `npm start` works here with
- *     no copy step.
- */
+// Where the built React app is, if it has been built. Checked before the routes
+// because Express matches handlers top to bottom, so we need to know up front
+// whether the SPA is going to own `/`. We try `server/client-dist` first (that's
+// the folder the build copies into, so the deployed app is self-contained) and
+// fall back to `client/dist` for local `npm start` with no copy step.
 const CLIENT_BUNDLE_CANDIDATES = [
   path.resolve(__dirname, '../client-dist'),
   path.resolve(__dirname, '../../client/dist'),
@@ -71,18 +51,10 @@ const clientDist = CLIENT_BUNDLE_CANDIDATES.find((dir) =>
 
 // ------------------------------------------------------------------ HTTP API
 
-/**
- * gzip/brotli for everything text-shaped.
- *
- * This is not a micro-optimisation: the measured production bundle is 237 kB and
- * was going over the wire whole, taking ~1.75 s on a cold connection. Compressed
- * it is ~78 kB. On the free tier's single CPU that trade (a few ms of deflate for
- * three fewer seconds of user waiting) is overwhelmingly worth it, and Render
- * does not do it for us — the deploy log shows nothing adding `Content-Encoding`.
- *
- * Socket.IO is unaffected: it takes over its own path on the raw http.Server
- * before Express is ever consulted, and a WebSocket frame is not an HTTP response.
- */
+// Compress text responses (gzip/brotli). The bundle is ~237 kB raw and took
+// about 1.75 s to load on a cold connection; compressed it's ~78 kB, so it's
+// worth the small CPU cost on the free tier. Render doesn't add this for us.
+// Socket.IO isn't affected since it handles its own path on the raw server.
 app.use(compression({ level: 6 }));
 app.use(cors({ origin: config.clientOrigins }));
 app.use(express.json({ limit: '16kb' }));
@@ -97,30 +69,20 @@ app.get('/health', (_req, res) => {
   });
 });
 
-/**
- * The landing page's "Live rooms" directory: a read-only list of parties that
- * currently have people in them, with the demo pinned first. Public by design —
- * the whole point is that a stranger can see something is happening and drop in.
- * It is capped and carries no user ids, chat or queue; the code is only ever a
- * hint, because actually joining still runs the socket layer's own gates.
- */
+// The "Live rooms" list shown on the landing page: read-only, only rooms that
+// currently have people, demo pinned first. It's public on purpose so a stranger
+// can see activity and join. The list is capped and carries no user ids or chat,
+// and the code is just a hint because the real join still goes through the
+// socket layer's own checks.
 app.get('/api/rooms', (_req, res) => {
   res.json({ ok: true, rooms: roomManager.listLive() });
 });
 
-/**
- * Share-link preflight: read-only inspection of one room code.
- *
- * Not used by the app itself — the client learns whether a join worked from the
- * `join_room` acknowledgement, and keeping that the single source of truth means
- * there is no second, disagreeable answer to "does this room exist?". This route
- * exists so a dead share link can be diagnosed with one curl instead of by
- * reading server logs.
- *
- * With `MONGODB_URI` set it can also say *why* a code is dead: `live: true` with
- * a participant count, or `live: false` plus what the database still remembers
- * about the party that used to be there.
- */
+// Share-link check: look up one room code without joining. The app itself
+// doesn't use this (it learns the answer from the join_room ack), but it lets us
+// debug a dead share link with a quick curl instead of reading server logs. If
+// MONGODB_URI is set it can also tell whether a code is live now or was a room
+// that has since closed.
 app.get('/api/rooms/:code', async (req, res) => {
   const code = normalizeRoomCode(req.params.code);
   try {
@@ -128,19 +90,17 @@ app.get('/api/rooms/:code', async (req, res) => {
     if (!preview) return res.status(404).json({ ok: false, error: 'Room not found or closed.' });
     res.json({ ok: true, room: preview });
   } catch (error) {
-    // Express 4 does not catch a rejected async handler, and an unhandled
-    // rejection here would hang the request instead of answering it.
+    // Express 4 doesn't catch a rejected async handler, so without this the
+    // request would hang instead of getting a response.
     console.warn('[http] room preview failed:', error.message);
     res.status(500).json({ ok: false, error: 'Room lookup failed.' });
   }
 });
 
-/**
- * Service info. It only claims `/` when there is no client bundle to serve;
- * otherwise the SPA owns `/` and this stays reachable at `/api`. Registering it
- * unconditionally would shadow the app shell forever, and the symptom is
- * confusing from the outside: a healthy deploy that appears to serve only JSON.
- */
+// Basic service info. It only answers on `/` when there's no client bundle to
+// serve; otherwise the SPA owns `/` and this stays at `/api`. Registering it on
+// `/` always would hide the app shell, which looks like a server that only
+// returns JSON.
 const serviceInfo = (_req, res) => {
   res.json({
     name: 'YouTube Watch Party — API',
@@ -154,43 +114,27 @@ if (!clientDist) app.get('/', serviceInfo);
 
 // ----------------------------------------------------------- static client
 
-/**
- * When the React app has been built, this same process serves it.
- *
- * One origin for the API, the WebSocket and the page is not just convenient for
- * a free tier — it deletes an entire class of deployment bug. The split
- * frontend/backend topology needs the frontend URL to be copied into the
- * backend's `CLIENT_ORIGIN` and the backend URL copied back into the frontend's
- * build-time `VITE_SERVER_URL`, and the failure when you get that wrong is a
- * Socket.IO error that looks like a network problem.
- *
- * The API routes are registered above, so they win; this only ever sees
- * anything else. Socket.IO is also safe because it intercepts its own path on
- * the raw HTTP server before Express is consulted.
- */
+// If the React app is built, this same process serves it. One origin for the
+// API, the socket and the page avoids a whole category of deploy bugs: with a
+// split frontend/backend you have to copy the frontend URL into CLIENT_ORIGIN and
+// the backend URL into VITE_SERVER_URL, and getting that wrong just looks like a
+// network error in Socket.IO. The API routes are registered above so they still
+// win; this only handles everything else.
 if (clientDist) {
   const assetsDir = path.join(clientDist, 'assets');
 
-  /**
-   * Cache policy, in two halves — and the split is the point.
-   *
-   * Vite fingerprints every filename under `/assets`, so a name can never point
-   * at two different files over time: a year in the browser cache is safe, and it
-   * is what makes the *second* visit to a shared link essentially instant.
-   *
-   * The HTML shell is the opposite: it is the one file whose name never changes
-   * and whose content changes on every deploy. Caching it is how a deploy appears
-   * to do nothing, because the old shell keeps asking for bundle names that no
-   * longer exist. `no-cache` (revalidate, and `express.static` answers with a
-   * cheap 304) is the correct setting, not `no-store`.
-   */
+  // Two different cache rules, and the split matters. Files under /assets have a
+  // hash in the name (Vite fingerprints them), so the name never points to two
+  // different files and we can cache them for a year. index.html keeps the same
+  // name but changes every deploy, so it's set to no-cache (revalidate) instead;
+  // caching the shell is how a deploy looks like it did nothing.
   const cacheFor = (file) =>
     path.dirname(file) === assetsDir
       ? 'public, max-age=31536000, immutable'
       : 'no-cache';
 
-  // `index: false` so the shell is always handed out by the catch-all below and
-  // a stale cached copy of it cannot pin clients to an old bundle.
+  // index:false so the shell is always served by the catch-all below and a stale
+  // cached copy can't pin clients to an old bundle.
   app.use(
     express.static(clientDist, {
       index: false,
@@ -202,8 +146,7 @@ if (clientDist) {
     if (req.path === '/health' || req.path.startsWith('/api/') || req.path.startsWith('/socket.io')) {
       return next();
     }
-    // `cacheControl: false` stops `send` from writing its own Cache-Control over
-    // the one set here.
+    // cacheControl:false stops `send` from overwriting the Cache-Control we set.
     res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(clientDist, 'index.html'), { cacheControl: false });
   });
@@ -215,9 +158,9 @@ async function start() {
   if (persistence.enabled) await persistence.connect();
 
   server.listen(config.port, () => {
-    // Read the real bound address rather than assuming localhost: on a PaaS the
-    // external host is not `localhost`, and a misleading line here wastes time
-    // exactly when the deploy logs are the only thing you have to go on.
+    // Log the address the server actually bound to instead of assuming
+    // localhost, since on a PaaS the external host isn't localhost and a wrong
+    // line here is confusing when you're only looking at deploy logs.
     const bound = server.address();
     const local = bound && typeof bound === 'object'
       ? `${bound.address === '::' ? '0.0.0.0' : bound.address}:${bound.port}`
@@ -233,11 +176,8 @@ async function start() {
   });
 }
 
-/**
- * The one event that is never allowed to take the process down. A single bad
- * payload from a curious client should refuse that socket, not kill every other
- * room on the server.
- */
+// These shouldn't crash the whole process. If one client sends a bad payload we
+// want to drop that socket, not take down every other room on the server.
 process.on('uncaughtException', (error) => {
   console.error('[fatal] uncaughtException:', error);
 });

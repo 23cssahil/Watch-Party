@@ -4,24 +4,23 @@ const { generateRoomCode, normalizeRoomCode } = require('../utils/roomCode');
 
 /**
  * ---------------------------------------------------------------------------
- * RoomManager — the registry of live rooms + the server's only timers.
+ * RoomManager — keeps the list of live rooms and runs the server's timers.
  * ---------------------------------------------------------------------------
  *
- * Socket.IO already gives us a broadcast primitive (`io.to(roomId).emit(...)`),
- * so why keep our own map at all? Because Socket.IO's adapter stores *membership*,
- * not *meaning*. It knows which sockets are in "ABC123"; it does not know who the
- * host is, what the video position is, or which proposals are awaiting approval.
- * Those are domain state and they live here.
+ * Socket.IO already has a broadcast (`io.to(roomId).emit(...)`), but we still
+ * keep our own map because Socket.IO only tracks *who's connected*, not the
+ * meaning: it doesn't know who the host is, where the video is, or which
+ * requests are waiting for approval. That domain state lives here.
  *
- * Two background loops run the whole realtime system:
+ * Two intervals drive the realtime side:
  *
- *  - **heartbeat** — pushes the authoritative position to every live room and
- *    expires stale approval requests. This is what makes the room self-healing:
- *    if a client's `sync_state` is dropped by a flaky network, the next beat
- *    pulls it back into line without anyone pressing anything.
+ *  - **heartbeat** — sends the current position to every live room and clears
+ *    old approval requests. This is what keeps a room in sync on its own: if a
+ *    `sync_state` is lost on a bad connection, the next beat fixes it with no
+ *    one having to do anything.
  *
- *  - **sweeper** — destroys rooms that have been empty past their TTL, so a
- *    long-running server cannot be filled with abandoned rooms.
+ *  - **sweeper** — deletes rooms that have been empty past their TTL, so an
+ *    old abandoned room doesn't sit in memory forever.
  *
  * @typedef {import('./Room')} Room
  */
@@ -48,8 +47,9 @@ class RoomManager {
    */
   create(videoId) {
     let code = generateRoomCode(config.room.codeLength);
-    // Codes are user-facing and short, so a collision (however unlikely) must
-    // be resolved by regeneration rather than by letting one room hijack another.
+    // Room codes are short and shown to users, so on the rare chance of a
+    // collision we just generate a new one rather than let one room reuse
+    // another's code.
     while (this.rooms.has(code)) {
       code = generateRoomCode(config.room.codeLength);
     }
@@ -68,10 +68,10 @@ class RoomManager {
   }
 
   /**
-   * Return the live demo room, creating it if it is not resident (first visit
-   * after a boot, or after a restart). Unlike a real room it is not restored from
-   * the database and never hosts anyone — it is a fixed, ownerless showcase with
-   * the demo video cued. `Room` guarantees every arrival is a Viewer.
+   * Return the live demo room, making it if it's not currently loaded (first
+   * visit after a boot or restart). Unlike a normal room it isn't restored from
+   * the database and never has a host — it's a fixed showcase with the demo video
+   * loaded, and Room makes sure everyone who joins is a Viewer.
    * @returns {Room}
    */
   ensureDemo() {
@@ -79,8 +79,8 @@ class RoomManager {
     const live = this.rooms.get(code);
     if (live) return live;
     const room = new Room({ id: code, io: this.io, videoId: config.demo.videoId, demo: true });
-    // Cued, not playing: each viewer starts it on their own screen with a tap,
-    // which is also what satisfies the browser's autoplay-with-sound gesture.
+    // Loaded but not playing: each viewer starts it on their own screen with a
+    // tap, which is also what the browser needs to allow sound autoplay.
     room.state.isPlaying = false;
     room.onStateChange = (dirty) => this.persist(dirty);
     this.rooms.set(code, room);
@@ -88,16 +88,16 @@ class RoomManager {
   }
 
   /**
-   * Look for a live room, and if the server has restarted, try to rebuild its
-   * durable metadata from the database so an old share link still works.
+   * Find a live room, and if the server has restarted, try to rebuild its saved
+   * metadata from the database so an old share link still works.
    *
-   * Restored: what was playing, how far it had got, how long it is, the room's
-   * age, and whose room it was. Not restored: the roster or anybody's live
-   * connection. Authority is still minted by arrival, never taken from a client
-   * payload — `hostUserId` only tells the room who *owned* it, so that the person
-   * who shared a link gets their own party back as its Host instead of walking in
-   * as a stranger who cannot control it. If somebody else reaches the room first,
-   * they run it, and that is the end of the story until the Host transfers.
+   * What gets restored: what was playing, the position, duration, the room's age
+   * and who owned it. What doesn't: the roster or anyone's live connection. The
+   * host role is given by who joins first, never read from a client message —
+   * `hostUserId` only records who owned the room, so the person who shared the
+   * link gets their own party back as Host instead of joining as a stranger who
+   * can't control it. If someone else joins first, they run it until the host
+   * transfers.
    * @param {string} rawCode
    * @returns {Promise<Room|undefined>}
    */
@@ -113,18 +113,18 @@ class RoomManager {
 
     const room = new Room({ id: code, io: this.io, videoId: saved.videoId });
     room.state.currentTime = Number(saved.currentTime) || 0;
-    // Without the duration a restored room cannot clamp a seek, so the first
-    // person back in could scrub past the end of the video.
+    // Without the duration a restored room can't clamp a seek, so someone
+    // joining could scrub past the end of the video.
     room.state.duration = Number(saved.duration) || 0;
     room.videoTitle = typeof saved.title === 'string' ? saved.title : '';
     room.peakSize = Number(saved.peakParticipants) || 0;
-    // The conversation is durable content, so a restored room reopens with its
-    // chat intact — the one piece of "live" state worth keeping across a restart.
+    // Chat is real content, so a restored room reopens with its history — the one
+    // bit of "live" state worth keeping across a restart.
     room.chatLog = Array.isArray(saved.chat) ? saved.chat.slice(-120) : [];
-    // Ownership, not authority. See the note on `Room.hostUserId`.
+    // This is ownership, not control. See the note on `Room.hostUserId`.
     room.hostUserId = typeof saved.hostUserId === 'string' ? saved.hostUserId : '';
     if (room.hostUserId) room.hostClaimed = true;
-    room.state.isPlaying = false; // never auto-resume into a room of strangers
+    room.state.isPlaying = false; // don't auto-start for a room of strangers
     room.state.updatedAt = Date.now();
     room.createdAt = saved.createdAt ? new Date(saved.createdAt).getTime() : Date.now();
     room.onStateChange = (dirty) => this.persist(dirty);
@@ -136,9 +136,9 @@ class RoomManager {
   /**
    * Read-only database lookup for the HTTP preview route.
    *
-   * Separate from `getOrRestore` on purpose: inspecting a code from a browser
-   * address bar must not materialise a room, start its timers or hand anybody
-   * the host role. This returns what was stored, or nothing.
+   * This is separate from `getOrRestore` on purpose: someone checking a code in
+   * the browser shouldn't create a room, start its timers or give anyone the host
+   * role. It just returns what was stored, or nothing.
    * @param {string} rawCode
    * @returns {Promise<object|null>}
    */
@@ -152,7 +152,7 @@ class RoomManager {
   /** @param {Room} room */
   persist(room) {
     if (typeof this.persistence.save !== 'function') return;
-    // Fire-and-forget: a slow database must never delay a playback broadcast.
+    // Fire-and-forget: a slow database must not hold up a playback broadcast.
     Promise.resolve(this.persistence.save(room)).catch((err) => {
       console.warn(`[RoomManager] persist failed for ${room.id}:`, err.message);
     });
@@ -166,19 +166,19 @@ class RoomManager {
   /**
    * Periodic state push + request expiry.
    *
-   * Walks the Map directly rather than through an intermediate list of "active"
-   * rooms: this is the one loop that runs forever, so building a fresh array on
-   * every beat would be garbage generated purely to be thrown away.
+   * This walks the Map directly instead of keeping a separate list of "active"
+   * rooms: it's the loop that runs forever, so building a new array every beat
+   * would just create garbage to throw away.
    */
   tick() {
     for (const room of this.rooms.values()) {
-      if (room.size === 0) continue; // an empty room has no one to tell
+      if (room.size === 0) continue; // no one to send to
       for (const expired of room.expireStaleRequests()) {
         this.io.to(room.id).emit('request_expired', { request: expired });
       }
       if (!room.state.isPlaying) continue;
-      // Only playing rooms need a position refresh; paused rooms are already
-      // correct for every client, so we save the bandwidth of the whole room.
+      // Only playing rooms need a position refresh; a paused room is already
+      // correct for everyone, so we skip sending for it.
       room.io.to(room.id).emit('sync_state', room.buildSyncPayload(null, 'heartbeat'));
     }
   }
@@ -189,10 +189,10 @@ class RoomManager {
   sweep() {
     const cutoff = Date.now() - config.room.emptyRoomTtlMs;
     for (const [code, room] of this.rooms) {
-      // The demo room is kept warm between visitors on purpose — it is the
-      // always-on showcase, and an empty one costs nothing (it never plays, so
-      // the heartbeat skips it). Reaping it would only make the next joiner wait
-      // for a fresh one and lose the shared chat.
+      // We keep the demo room alive between visitors on purpose — it's the
+      // permanent showcase, and an empty one costs nothing (it never plays, so
+      // the heartbeat skips it). Deleting it would just make the next joiner wait
+      // for a new one and lose the shared chat.
       if (room.demo) continue;
       if (room.size === 0 && room.lastActiveAt < cutoff) {
         this.rooms.delete(code);
@@ -206,7 +206,7 @@ class RoomManager {
     clearInterval(this.sweeper);
   }
 
-  /** Exposed for the read-only /health endpoint. One pass, four numbers. */
+  /** Used by the read-only /health endpoint. One pass over the rooms. */
   stats() {
     let activeRooms = 0;
     let participants = 0;
@@ -225,16 +225,15 @@ class RoomManager {
   }
 
   /**
-   * A public directory of rooms that currently have people in them, for the
-   * landing page's "Live rooms" panel. Read-only and deliberately minimal: it
-   * exposes only what a stranger needs to decide whether to drop in — the code,
-   * who is hosting, how many are watching and what is playing. It never leaks
-   * user ids, socket ids, chat or the approval queue, and joining is still gated
-   * by the socket layer's own rules (a demo never hosts anyone; a full room
-   * refuses).
+   * The list of rooms that currently have people, for the landing page's "Live
+   * rooms" panel. It's read-only and kept small on purpose: it only shows what a
+   * stranger needs to decide whether to join — the code, the host, the viewer
+   * count and the title. It never exposes user ids, socket ids, chat or the
+   * approval queue, and joining is still checked by the socket layer (a demo
+   * never hosts anyone; a full room refuses).
    *
-   * The demo party is always first and always present — even when empty — because
-   * it is the permanent showcase the request wants pinned at the top.
+   * The demo room is always first and always shown, even when empty, since it's
+   * the permanent showcase.
    * @param {number} [limit]
    * @returns {Array<{code:string,host:string,viewers:number,title:string,isDemo:boolean}>}
    */
@@ -250,7 +249,7 @@ class RoomManager {
         isDemo: false,
       });
     }
-    // Busiest first so a lively party surfaces above a nearly-empty one.
+    // Busiest first, so a lively room shows up above a nearly-empty one.
     rows.sort((a, b) => b.viewers - a.viewers);
 
     const live = this.rooms.get(normalizeRoomCode(config.demo.code));

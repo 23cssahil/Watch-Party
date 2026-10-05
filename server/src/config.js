@@ -1,11 +1,7 @@
 require('dotenv').config();
 
-/**
- * Central runtime configuration.
- *
- * Every tunable lives here so the WebSocket logic contains no magic numbers
- * and so production can be re-tuned with environment variables only.
- */
+// Central config. All the tunable values live here so the websocket logic has no
+// magic numbers and production can be re-tuned with environment variables.
 const config = {
   port: Number(process.env.PORT) || 4000,
 
@@ -18,23 +14,15 @@ const config = {
 
   mongoUri: process.env.MONGODB_URI || '',
 
-  /**
-   * The public demo party.
-   *
-   * A single, always-available room anyone can drop into to see the product
-   * working without hosting one themselves. It is deliberately unlike a normal
-   * room in two ways, both enforced in `ws/Room.js`:
-   *
-   *   - **Nobody is ever the Host.** Every arrival is a Viewer, so no one can
-   *     change the shared video or drive everyone's playback — the demo is the
-   *     same for everyone and cannot be taken over.
-   *   - **Playback is local.** The client runs its own player (see the `demo`
-   *     flag it receives on the snapshot), so pausing or scrubbing affects only
-   *     that one screen. Presence and chat stay shared.
-   *
-   * The code contains an `O`, which `utils/roomCode`'s generator excludes, so a
-   * random room can never collide with it.
-   */
+  // The public demo room: a room anyone can join to try the app without hosting
+  // one. It differs from a normal room in two ways (both handled in ws/Room.js):
+  //   - No one is the host. Everyone joins as a viewer, so no one can change the
+  //     video or control playback for the group.
+  //   - Playback is local. Each person runs their own player (the client gets a
+  //     demo flag), so pausing/scrubbing only affects their screen. Presence and
+  //     chat are still shared.
+  // The code has an 'O', which the room-code generator never produces, so a
+  // random room can't collide with it.
   demo: {
     code: (process.env.DEMO_ROOM_CODE || 'DEMO24').toUpperCase().replace(/[^A-Z0-9]/g, ''),
     // "Despacito" — Luis Fonsi ft. Daddy Yankee. Set by default for the demo.
@@ -46,43 +34,39 @@ const config = {
     codeLength: 6,
     // Hard cap on concurrent participants in one room.
     maxParticipants: 50,
-    // A room with nobody in it is destroyed after this idle window.
+    // A room with no one in it gets cleaned up after this idle time.
     emptyRoomTtlMs: 10 * 60 * 1000,
-    // A pending approval request auto-expires so a stale request can never
-    // silently take over the room ten minutes later.
+    // A pending approval request expires, so an old request can't suddenly take
+    // over the room much later.
     requestTtlMs: 60 * 1000,
-    // Back-pressure: a participant cannot spam the host with requests.
+    // Limit how many requests one person can have pending so the host doesn't
+    // get spammed.
     maxPendingRequestsPerUser: 2,
     maxPendingRequestsPerRoom: 20,
   },
 
   sync: {
-    // How often the server pushes the authoritative clock/state to a room.
+    // How often the server sends the current state/clock to a room.
     heartbeatIntervalMs: 5000,
-    // Client-side drift tolerance in seconds. Below this we let the YouTube
-    // player run on its own instead of hard-seeking (which would look janky).
+    // How much drift (in seconds) we tolerate on the client before re-seeking.
+    // Under this we let the player run on its own to avoid janky seeks.
     driftToleranceSec: 1.5,
   },
 
-  /**
-   * Inbound pressure control.
-   *
-   * The rule this block follows: a control a person can see must never be
-   * dropped without an answer, because from their side the failure looks like
-   * "this button is broken", not like "I was rate limited". So only the
-   * genuinely high-frequency inputs are coalesced, and anything over budget is
-   * rejected *audibly*.
-   */
+  // Rate limiting for inbound events. The idea: don't silently drop an action a
+  // user can see, because from their side it just looks like a broken button
+  // rather than rate limiting. So only the very high-frequency inputs get
+  // merged, and anything over budget is rejected with a visible response.
   rateLimit: {
-    // Dragging a scrubber fires dozens of `seek` events per second, and only
-    // the final position is meaningful — so they are merged over this window.
+    // Dragging the scrubber fires many seek events per second but only the final
+    // position matters, so we merge them over this window.
     seekSettleMs: 90,
-    // play/pause/change_video are budgeted rather than dropped. This many per
-    // window is far beyond any human click rate.
+    // play/pause/change_video are limited rather than merged. This count is well
+    // past anything a person would actually click.
     actionBurstPerWindow: 20,
     actionWindowMs: 1000,
-    // Reactions are decoration, so a plain cooldown suffices — kept on its own
-    // key so a burst of emoji can never stall playback control.
+    // Reactions are just decoration, so a simple cooldown is enough. They're on
+    // their own limit so a burst of emoji can't block playback controls.
     reactionCooldownMs: 250,
     chatCooldownMs: 700,
   },

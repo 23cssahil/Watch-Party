@@ -12,28 +12,27 @@ const { sanitizeUsername, sanitizeChat, sanitizeReaction, sanitizeTitle } = requ
 
 /**
  * ---------------------------------------------------------------------------
- * MessageHandler — every inbound WebSocket event, and the gate in front of it.
+ * MessageHandler — every inbound WebSocket event, and the check in front of it.
  * ---------------------------------------------------------------------------
  *
- * Event names are taken verbatim from the assignment's "WebSocket Events"
- * table (`join_room`, `sync_state`, `assign_role`, `role_assigned`, ...) so the
- * contract can be read straight off the brief.
+ * Event names come straight from the assignment's "WebSocket Events" table
+ * (`join_room`, `sync_state`, `assign_role`, `role_assigned`, ...) so the
+ * contract matches the brief exactly.
  *
- * `handleAction()` is the one function that implements both RBAC rules in the
- * brief. Every playback event funnels through it, so there is exactly one
- * place to audit for a permission hole:
+ * `handleAction()` is the one function that implements both RBAC rules. Every
+ * playback event goes through it, so there's only one place to check for a
+ * permission gap:
  *
- *      can(role, action)      -> mutate the Room, broadcast sync_state
- *      needsApproval(...)     -> queue a request, notify Host + Moderators only
- *      otherwise              -> refuse, tell the sender why
+ *      can(role, action)      -> change the Room, broadcast sync_state
+ *      needsApproval(...)     -> queue a request, notify only Host + Moderators
+ *      otherwise              -> refuse, and tell the sender why
  *
- * All three branches answer the sender. There is no fourth, silent branch — a
- * control a user can see never disappears into a rate limiter without either
- * taking effect or explaining why it did not.
+ * All three branches reply to the sender. There's no silent fourth path — a
+ * button a user can see either does something or explains why it didn't.
  *
- * Nothing here trusts the socket's own idea of its role. The role is always
- * re-read from the server-side Participant record, because `socket.data` is
- * written only by this file — a client cannot claim to be the host by sending
+ * Nothing here trusts the socket's idea of its own role. The role is always read
+ * back from the server-side Participant record, because `socket.data` is only
+ * written by this file — a client can't make itself the host by sending
  * `{ role: 'host' }`.
  */
 class MessageHandler {
@@ -80,8 +79,8 @@ class MessageHandler {
     // Approval workflow (the participant path into playback).
     socket.on('request_approval', (payload) => this.requestApproval(socket, payload));
     socket.on('resolve_request', (payload) => this.resolveRequest(socket, payload));
-    // Rejection is the same event with `approved: false` — there is deliberately
-    // no second `dismiss` alias, so the contract has exactly one way to vote.
+    // Rejection is the same event with `approved: false` — there's intentionally
+    // no separate `dismiss` event, so the contract has only one way to vote.
 
     // Room utilities.
     socket.on('sync_request', () => this.sendSyncState(socket));
@@ -123,8 +122,8 @@ class MessageHandler {
     const me = room.getParticipant(socket.data.userId);
     if (!me) {
       // We know this socket but the room has no record of the person behind it
-      // (kicked, or a server-side restore raced the reconnect). Force a clean
-      // rejoin rather than letting a ghost socket mutate state.
+      // (kicked, or a restore on the server raced the reconnect). Make them do a
+      // clean rejoin instead of letting an old socket change state.
       this.deny(socket, 'Your seat in this room expired. Please rejoin.', 'stale_session');
       socket.data.roomId = null;
       return null;
@@ -133,12 +132,12 @@ class MessageHandler {
   }
 
   /**
-   * Coarse anti-flood guard for decoration-level events (reactions, chat).
+   * Simple anti-spam check for decoration-level events (reactions, chat).
    *
-   * Deliberately *not* used for playback: see `overBudget()`.
+   * Not used for playback on purpose: see `overBudget()`.
    *
    * @param {import('socket.io').Socket} socket
-   * @param {string} key which timestamp to consult
+   * @param {string} key which timestamp to check
    * @param {number} ms minimum interval
    */
   cooledDown(socket, key, ms) {
@@ -149,13 +148,13 @@ class MessageHandler {
   }
 
   /**
-   * Sliding-window budget for playback intents.
+   * Sliding-window limit for playback actions.
    *
-   * A dropped `play` is the worst possible outcome here: the person clicked a
-   * button, saw nothing happen, and has no way to know the room ignored them.
-   * So playback is never gated by a short cooldown — it is only capped at a
-   * rate no human hand can reach, and going over that cap answers with a
-   * visible refusal instead of silence.
+   * Dropping a `play` is the worst thing that could happen here: the person
+   * clicked a button, saw nothing, and has no way to know the room ignored them.
+   * So playback is never blocked by a short cooldown — it's only capped at a rate
+   * no one can actually click, and going over that cap gives a visible refusal
+   * instead of silence.
    *
    * @param {import('socket.io').Socket} socket
    */
@@ -215,9 +214,9 @@ class MessageHandler {
       return;
     }
 
-    // The public demo party is materialised on demand rather than restored from
-    // the database: it is a fixed, ownerless showcase, so `ensureDemo` hands back
-    // the live one (or makes a fresh cued room after a boot). See `config.demo`.
+    // The public demo room is created on demand instead of being restored from
+    // the database: it's a fixed showcase with no owner, so `ensureDemo` returns
+    // the live one (or makes a fresh loaded room after a boot). See `config.demo`.
     const isDemo = code === normalizeRoomCode(config.demo.code);
     const room = isDemo
       ? this.roomManager.ensureDemo()
@@ -243,26 +242,26 @@ class MessageHandler {
   }
 
   /**
-   * Shared join path for create + join. Attaches the socket to the Socket.IO
-   * room, registers the Participant, then hands the newcomer a full snapshot
-   * and tells everyone else they arrived.
+   * Shared join path for create + join. Puts the socket in the Socket.IO room,
+   * registers the Participant, then gives the newcomer a full snapshot and tells
+   * everyone else they arrived.
    *
    * @param {import('socket.io').Socket} socket
    * @param {import('./Room')} room
    * @param {{ userId: string, username: string, ack?: Function, announce?: boolean }} opts
    */
   enter(socket, room, { userId, username, ack, announce = false }) {
-    // One socket, one room — and leaving the old channel is not enough.
+    // One socket, one room — and just leaving the old channel isn't enough.
     //
-    // Without a real exit, the room being abandoned kept a Participant whose
-    // socket no longer existed: a ghost in the roster that inflated the headcount,
-    // stopped the room from ever reading as empty, and — if the ghost had been the
-    // Host — left a room nobody could control or approve anything in. This is
-    // reachable by pressing the logo to go Home and then "Create room".
+    // Without a real exit, the room you left would keep a Participant whose
+    // socket no longer exists: a fake entry in the list that inflates the count,
+    // stops the room from ever reading as empty, and — if that entry was the
+    // Host — leaves a room no one can control or approve anything in. You can hit
+    // this by pressing the logo to go Home and then "Create room".
     //
-    // Re-entering the *same* code is not a departure: the seat is already theirs,
-    // and `addParticipant` re-attaches the new socket to it (that is the reload and
-    // rename path, and it must keep their role).
+    // Joining the *same* code again isn't a departure: the seat is still theirs,
+    // and `addParticipant` re-attaches the new socket to it (this is the reload
+    // and rename path, and it has to keep their role).
     const previousCode = normalizeRoomCode(socket.data.roomId);
     if (previousCode && previousCode !== room.id) {
       const previous = this.roomManager.get(previousCode);
@@ -293,18 +292,18 @@ class MessageHandler {
   }
 
   /**
-   * Pressing Leave is a *departure*, not a demolition.
+   * Pressing Leave is leaving, not deleting the room.
    *
-   * An earlier revision closed the room here and told everyone else "the host
-   * ended the party". That was wrong twice over. It contradicted what actually
-   * happened one line later — `exit()` promotes the longest-tenured survivor,
-   * so the room was alive with a new Host while its viewers were being shown a
-   * dead-room screen. And it made one person's bathroom break the end of
-   * everyone's party, with no way back: the room code people had shared would be
-   * a lie, and a Host cannot re-mint a room that has been dropped.
+   * An earlier version closed the room here and told everyone else "the host
+   * ended the party". That was wrong two ways. It contradicted what happened one
+   * line later — `exit()` promotes the longest-tenured person still here, so the
+   * room was alive with a new Host while everyone was being shown a closed-room
+   * screen. And it made one person stepping away end everyone's party with no way
+   * back: the shared room code would be dead, and a Host can't recreate a room
+   * once it's dropped.
    *
-   * So the host leaving hands the room over (§5). `room_deleted` is left in the
-   * contract for a deliberate End-party action, which the UI does not offer yet.
+   * So when the host leaves, the room is handed over. `room_deleted` is kept in
+   * the contract for a deliberate End-party action, which the UI doesn't offer yet.
    */
   leaveRoom(socket) {
     const ctx = this.context(socket);
@@ -321,12 +320,13 @@ class MessageHandler {
     const userId = socket.data.userId;
     this.clearPendingSeek(socket);
 
-    // Only evict the seat if this socket still backs it. A page refresh opens a
-    // new connection that rebinds the *same* userId before the browser reaps the
-    // old one, so the departing socket is frequently no longer the seat's owner.
-    // Removing by userId alone in that window deletes the live, rebound seat and
-    // fires a bogus host succession — a mere reload handing the room to whoever
-    // joined next. A stale disconnect must unhook itself and change nothing else.
+    // Only remove the seat if this socket still owns it. A page refresh opens a
+    // new connection that rebinds the *same* userId before the browser closes the
+    // old one, so the disconnecting socket is often no longer the seat's owner.
+    // If we removed by userId in that window we'd delete the live, rebound seat
+    // and trigger a false host handover — a plain reload passing the room to
+    // whoever joined next. An old disconnect should just clean itself up and not
+    // change anything else.
     const seat = userId ? room.getParticipant(userId) : null;
     if (seat && seat.socketId !== socket.id) {
       socket.leave(room.id);
@@ -351,8 +351,8 @@ class MessageHandler {
       participants,
     });
 
-    // A departure can silently change who the host is, so refresh the survivor
-    // that still needs an authoritative view of the room.
+    // Leaving can quietly change who the host is, so give the survivor that's
+    // left an up-to-date view of the room.
     const heir = room.getHost();
     if (leaving.isHost && heir) {
       room.broadcast('host_transferred', {
@@ -379,7 +379,7 @@ class MessageHandler {
   // -------------------------------------------------------------- playback
 
   /**
-   * THE permission gate.
+   * The permission gate.
    *
    * @param {import('socket.io').Socket} socket
    * @param {'play'|'pause'|'seek'} action
@@ -389,8 +389,8 @@ class MessageHandler {
     const ctx = this.context(socket);
     if (!ctx) return;
 
-    // A scrubber drag is the one legitimately high-frequency input, and only
-    // its final value matters, so it is coalesced rather than gated.
+    // Dragging the scrubber is the one really high-frequency input, and only its
+    // final value matters, so we merge it instead of limiting it.
     if (action === 'seek') {
       this.scheduleSeek(socket, payload);
       return;
@@ -405,9 +405,9 @@ class MessageHandler {
   }
 
   /**
-   * Leading-edge-immune `seek` merger: remember the newest target, and apply it
-   * once the drag has settled. The room ends up where the user left the handle,
-   * with one broadcast instead of forty.
+   * `seek` merger: remember the latest target and apply it once the drag stops.
+   * The room ends up where the user left the handle, with one broadcast instead
+   * of dozens.
    *
    * @param {import('socket.io').Socket} socket
    * @param {object} payload
@@ -422,8 +422,8 @@ class MessageHandler {
       if (!pending || !socket.connected) return;
       const ctx = this.context(socket);
       if (!ctx) return;
-      // The settling of one drag must never read as flooding, so the trailing
-      // flush is exempt from the budget.
+      // Finishing one drag shouldn't count as spam, so this last apply skips the
+      // budget check.
       socket.data.actionWindow.count = Math.min(
         socket.data.actionWindow.count,
         config.rateLimit.actionBurstPerWindow
@@ -433,7 +433,7 @@ class MessageHandler {
   }
 
   /**
-   * The actual three-way decision, shared by direct events and coalesced ones.
+   * The real three-way decision, used for both direct events and merged ones.
    *
    * @param {import('socket.io').Socket} socket
    * @param {import('./Room')} room
@@ -469,22 +469,22 @@ class MessageHandler {
       room.sendTo(actorUserId, 'room_error', { message: result.error, code: 'bad_payload' });
       return null;
     }
-    // Spec: "server broadcasts". Everyone receives it, including the actor, so
-    // the actor's own optimistic guess is corrected rather than trusted.
+    // Spec says "server broadcasts". Everyone gets it, including the person who
+    // caused it, so their own local guess gets corrected instead of trusted.
     room.broadcast('sync_state', result.sync);
     return result.sync;
   }
 
   /**
-   * `change_video` is separated out only because a paste-box payload needs
-   * parsing (full URL vs bare id) before it can hit the gate.
+   * `change_video` is split out just because a pasted value needs parsing (full
+   * URL vs plain id) before it can go through the gate.
    */
   changeVideo(socket, payload = {}) {
     const resolved = resolveVideoId(payload.videoId ?? payload.url);
     if (!resolved.ok) {
       // `room_error` is the only channel the contract defines for a refusal, so
-      // the client's existing error path covers a bad paste — no parallel
-      // one-off event type to keep in sync.
+      // the client's normal error path already handles a bad paste — no separate
+      // one-off event to keep in sync.
       this.deny(socket, resolved.error, 'bad_video');
       return;
     }
@@ -494,7 +494,7 @@ class MessageHandler {
   // ------------------------------------------------------------- approvals
 
   /**
-   * A restricted user pressed a control: convert it into a proposal.
+   * A restricted user pressed a control: turn it into a proposal.
    * @param {import('./Room')} room
    * @param {import('./Participant')} me
    * @param {string} action
@@ -508,12 +508,12 @@ class MessageHandler {
       return;
     }
 
-    // Tell the requester their action is *pending*, not applied. Without this
-    // the participant's player would sit still with no explanation.
+    // Tell the requester their action is pending, not applied. Without this the
+    // participant's player would just sit there with no explanation.
     socket.emit('request_pending', { request: result.request });
 
-    // Spec: broadcast role updates so the UI can reflect restricted users.
-    // The queue itself only ever goes to Host/Moderators.
+    // Spec: broadcast role updates so the UI can show restricted users. The queue
+    // itself only ever goes to Host/Moderators.
     room.broadcastToApprovers('request_received', {
       request: result.request,
       requests: room.listRequests(),
@@ -521,8 +521,8 @@ class MessageHandler {
   }
 
   /**
-   * Explicit client-initiated request (used by the "Ask host to..." menu,
-   * which carries an optional note). Same gate as an accidental click.
+   * Started on purpose by the client (the "Ask host to..." menu, which can carry
+   * an optional note). Same check as an accidental click.
    */
   requestApproval(socket, payload = {}) {
     const ctx = this.context(socket);
@@ -531,7 +531,7 @@ class MessageHandler {
 
     const action = String(payload.action || '');
     if (!needsApproval(me.role, action)) {
-      // Either they are allowed to just do it, or the action is not requestable.
+      // Either they're allowed to just do it, or the action can't be requested.
       if (can(me.role, action)) {
         this.execute(room, action, payload.payload || {}, me.userId, 'direct');
         return;
@@ -570,7 +570,7 @@ class MessageHandler {
   }
 
   /**
-   * Host/Moderator verdict on a proposal.
+   * Host/Moderator decision on a proposal.
    */
   resolveRequest(socket, payload = {}) {
     const ctx = this.context(socket);
@@ -626,8 +626,8 @@ class MessageHandler {
       participants,
     });
 
-    // The demoted/promoted person's capability list changed; re-send it so
-    // their controls update immediately without a refresh.
+    // The person demoted/promoted now has a different capability list; re-send it
+    // so their buttons update right away without a refresh.
     room.sendTo(result.result.userId, 'room_state', room.snapshotFor(result.result.userId));
   }
 
@@ -652,8 +652,9 @@ class MessageHandler {
       return this.deny(socket, 'The Host cannot be removed. Transfer host first.', 'forbidden');
     }
 
-    // Tell the victim before deleting their seat so the client can render a
-    // specific "you were removed" screen instead of a silent disconnect.
+    // Let the removed person know before we delete their seat, so the client can
+    // show a specific "you were removed" screen instead of just dropping the
+    // connection with no reason.
     room.sendTo(targetUserId, 'removed_from_room', {
       roomId: room.id,
       by: me.username,
@@ -690,7 +691,7 @@ class MessageHandler {
       participants,
     });
 
-    // Both parties just changed role — each needs a fresh snapshot.
+    // Both people just changed role — each needs a fresh snapshot.
     room.sendTo(me.userId, 'room_state', room.snapshotFor(me.userId));
     room.sendTo(result.result.newHost.userId, 'room_state', room.snapshotFor(result.result.newHost.userId));
   }
@@ -705,13 +706,13 @@ class MessageHandler {
   }
 
   /**
-   * Clients report what their player loaded: the real duration (so the server
-   * can clamp seeks) and the title (so the durable row and the share-link
-   * preview say what a party is watching, not just an 11-character id).
+   * Clients tell us what their player loaded: the real duration (so the server
+   * can clamp seeks) and the title (so the saved row and the share-link preview
+   * say what a party is watching, not just an 11-character id).
    *
-   * Accepted from anyone, and validated here at the wire boundary. Neither
-   * value grants control: a client can mislabel a room, but it cannot seek,
-   * pause or promote anyone through this event.
+   * Accepted from anyone, and checked here at the socket boundary. Neither value
+   * gives any control: a client can mislabel a room, but it can't seek, pause or
+   * promote anyone through this event.
    */
   reportDuration(socket, payload = {}) {
     const ctx = this.context(socket);
@@ -752,13 +753,13 @@ class MessageHandler {
   }
 
   /**
-   * Called by the HTTP layer when a room is inspected by code (share-link
-   * preview). Read-only, no membership implied, and it never creates a room —
-   * a lookup for a dead code must not resurrect it as a live object.
+   * Called by the HTTP layer when a room is looked up by code (share-link
+   * preview). Read-only, joins nothing, and never makes a room — a lookup for a
+   * dead code shouldn't bring it back as a live object.
    *
-   * Answers with `live: false` and whatever the database remembers when no one
-   * is in the room, which is the difference between "that code never existed"
-   * and "that party is over": the two things a dead share link needs to say.
+   * If no one is in the room it answers with `live: false` and whatever the
+   * database remembers, which is how you tell "that code never existed" apart
+   * from "that party is over" — the two things a dead share link needs to say.
    * @param {string} code
    * @returns {Promise<object|null>}
    */

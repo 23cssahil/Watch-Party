@@ -1,35 +1,35 @@
 const mongoose = require('mongoose');
 
 /**
- * Durable room metadata — the `rooms` collection inside the `watch_party`
- * database. One document per watch party.
+ * Saved room metadata — the `rooms` collection in the `watch_party` database.
+ * One document per watch party.
  *
- * Deliberately *not* a full mirror of the live Room object. Socket state
- * (who is connected, whose seat is pending approval) is meaningless the moment
- * the process dies, so persisting it would just create lies to reload later.
- * What survives a restart usefully is the room's identity and where the video
- * had got to — enough for an old share link to reopen the same watch party.
+ * This is intentionally not a full copy of the live Room object. Socket state
+ * (who's connected, whose request is pending) is useless once the process dies,
+ * so saving it would just create bad data to load back later. What's worth
+ * keeping across a restart is the room's identity and where the video had
+ * reached — enough for an old share link to reopen the same watch party.
  *
- * Every field earns its place:
- *  - `roomId`          what a share link carries, and the only query key
- *  - `videoId`         what to cue on restore
- *  - `title`           what makes a row readable in the Atlas UI
- *  - `currentTime`     where the video had got to
- *  - `durationSec`     so a restored room can clamp a seek immediately
+ * Each field is here for a reason:
+ *  - `roomId`          what a share link carries, and the only lookup key
+ *  - `videoId`         what to load on restore
+ *  - `title`           makes a row readable in the Atlas UI
+ *  - `currentTime`     where the video had reached
+ *  - `durationSec`     so a restored room can clamp a seek right away
  *  - `hostUserId`      whose room this is, so the owner who reloads or comes back
  *                      after a restart is met by the room as its Host. It records
- *                      ownership only: the roster and the live roles are socket
- *                      state and are deliberately not stored (README §5, §8).
+ *                      ownership only — the roster and live roles are socket state
+ *                      and are deliberately not stored (README §5, §8).
  *  - `peakParticipants` how big the party ever got
  *  - `lastActiveAt`    drives the TTL below, and answers "is this alive?"
  *  - `chat`            the last messages, so a restored room reopens with its
- *                      conversation intact instead of an empty chat panel
+ *                      conversation instead of an empty chat panel
  */
 const RoomSchema = new mongoose.Schema(
   {
     roomId: { type: String, required: true, unique: true, uppercase: true },
-    // An 11-character YouTube id is a hard shape, not a suggestion: a malformed
-    // row would restore a room whose player can never load anything.
+    // A YouTube id is always exactly 11 characters, so we enforce the shape: a
+    // broken row would restore a room whose player can never load a video.
     videoId: { type: String, required: true, match: /^[A-Za-z0-9_-]{11}$/ },
     title: { type: String, default: '', maxlength: 200 },
     currentTime: { type: Number, default: 0, min: 0 },
@@ -38,10 +38,10 @@ const RoomSchema = new mongoose.Schema(
     hostName: { type: String, default: '', maxlength: 24 },
     peakParticipants: { type: Number, default: 0, min: 0 },
     lastActiveAt: { type: Date, default: Date.now },
-    // The conversation, kept so a room that outlives a restart still shows what
-    // was said. Capped on write (Room.chatLog holds the last 120); every line is
-    // already sanitised at the wire boundary, and each field is bounded here so
-    // one document cannot grow without limit.
+    // The chat, kept so a room that survives a restart still shows what was said.
+    // Capped when written (Room.chatLog holds the last 120); each line is already
+    // cleaned at the socket boundary, and every field is bounded here so one
+    // document can't grow without limit.
     chat: {
       type: [
         {
@@ -57,16 +57,15 @@ const RoomSchema = new mongoose.Schema(
       default: [],
     },
   },
-  // An explicit collection name, so what appears in Atlas is `watch_party.rooms`
-  // rather than a pluralisation of the model name guessing at it.
+  // Set the collection name explicitly, so it shows up in Atlas as
+  // `watch_party.rooms` instead of a guessed plural of the model name.
   { timestamps: true, versionKey: false, collection: 'rooms' }
 );
 
 /**
- * Rooms are ephemeral by nature, so the row that describes one must be too.
- * TTL on `lastActiveAt` rather than `updatedAt`: every write refreshes it, which
- * is what keeps a room people are still watching while deleting one nobody has
- * touched in a week.
+ * Rooms are temporary, so the row describing one should be too. The TTL is on
+ * `lastActiveAt` rather than `updatedAt`: every write refreshes it, which keeps a
+ * room people are still watching while deleting one nobody has touched in a week.
  */
 RoomSchema.index({ lastActiveAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7 });
 

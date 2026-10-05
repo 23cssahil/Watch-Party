@@ -1,9 +1,9 @@
 const crypto = require('crypto');
 
 /**
- * Room codes are generated from an alphabet with visually ambiguous
- * characters removed (0/O, 1/I/L) so a code read out loud or typed from a
- * screenshot is unambiguous. Case-insensitive on lookup.
+ * Room codes use an alphabet with the easily-confused characters taken out
+ * (0/O, 1/I/L), so a code read aloud or typed from a screenshot isn't ambiguous.
+ * Lookups are case-insensitive.
  */
 const ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 

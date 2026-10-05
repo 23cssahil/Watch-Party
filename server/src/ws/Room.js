@@ -9,7 +9,7 @@ const {
   capabilitiesFor,
 } = require('./permissions');
 
-/** A calm default so a freshly created room is never a black rectangle. */
+/** A sensible default so a new room isn't just a black box. */
 const DEFAULT_VIDEO_ID = 'aqz-KE-bpKQ'; // Big Buck Bunny (CC-licensed)
 
 /**
@@ -17,19 +17,18 @@ const DEFAULT_VIDEO_ID = 'aqz-KE-bpKQ'; // Big Buck Bunny (CC-licensed)
  * Room — the authoritative model of one watch party.
  * ---------------------------------------------------------------------------
  *
- * Design rule: **the Room owns the truth, clients own the rendering.**
+ * The main idea: the Room holds the truth, the clients just render it.
  *
- * A Room holds the shared playback state and the participant roster. It is the
- * only object allowed to mutate either. That matters because clients disagree
- * with each other by design — someone on mobile will be 400 ms behind, someone
- * will have a paused tab. If the server merely relayed messages, every client
- * would reconstruct a different history and the room would desync permanently.
- * Instead clients send *intents* ("I pressed play"), the Room folds the intent
- * into canonical state, and hands the resulting snapshot back to everyone.
+ * A Room keeps the shared playback state and the participant list, and it's the
+ * only thing allowed to change either. This matters because clients naturally
+ * disagree — someone on mobile is a bit behind, someone has a paused tab. If the
+ * server just passed messages along, each client would build a slightly different
+ * picture and the room would drift out of sync for good. Instead clients send
+ * intents ("I pressed play"), the Room applies them to one shared state, and
+ * sends the result back to everyone.
  *
- * The same fold is reused for approved requests, which is why a playback
- * change approved by a Moderator and one performed by the Host are
- * byte-for-byte identical downstream.
+ * The same code path is used for approved requests, so a playback change approved
+ * by a Moderator and one done by the Host end up identical to everyone else.
  */
 class Room {
   /**
@@ -43,9 +42,9 @@ class Room {
     this.id = id;
     this.io = io;
     /**
-     * A demo room is a shared space with no owner: every arrival is a Viewer and
-     * playback is each person's own business (the client is told via `demo` on
-     * the snapshot). See `config.demo` and the guards in `addParticipant` /
+     * A demo room is a shared space with no owner: everyone who joins is a Viewer
+     * and playback is each person's own thing (the client is told through `demo`
+     * in the snapshot). See `config.demo` and the checks in `addParticipant` /
      * `ensureHost`.
      */
     this.demo = Boolean(demo);
@@ -54,8 +53,8 @@ class Room {
     this.participants = new Map();
 
     /**
-     * Memoised join-ordered view of `participants` (see `listParticipants`).
-     * Only ever invalidated where the Map itself grows or shrinks.
+     * Cached join-ordered view of `participants` (see `listParticipants`).
+     * It's only cleared where the Map itself grows or shrinks.
      * @type {Participant[]|null}
      */
     this.roster = null;
@@ -67,39 +66,37 @@ class Room {
     this.chatLog = [];
 
     /**
-     * Title of the video currently loaded, reported by a client that actually
-     * asked the player. Kept off `state` on purpose: it is metadata for the
-     * durable record and the share-link preview, and no playback rule reads it,
-     * so a client lying about it can only corrupt a label, never a decision.
+     * Title of the video currently loaded, sent by a client that read it from the
+     * player. It's kept out of `state` on purpose: it's just a label for the saved
+     * record and the share preview, and no playback rule uses it, so a client
+     * lying about it can only mess up a label, not a decision.
      */
     this.videoTitle = '';
 
-    /** Widest the room has ever been. Persisted, so Atlas rows show real use. */
+    /** Largest the room has ever been. Saved so the Atlas rows show real use. */
     this.peakSize = 0;
 
     /**
-     * Whether a Host has ever been minted for this room. A room that has been
-     * handed over must not let whoever happens to arrive first into a temporarily
-     * empty room claim ownership of it.
+     * Whether a Host has ever been set for this room. A room that's been handed
+     * over shouldn't let whoever joins a temporarily-empty room claim it.
      */
     this.hostClaimed = false;
 
     /**
-     * The userId this room belongs to, outliving their socket.
+     * The userId this room belongs to, which outlives their socket.
      *
-     * Without it a refresh costs the Host the room: their connection drops, and
-     * if nobody else is present there is no one to inherit the role, so the room
-     * sat permanently hostless — no playback control, and no one left who could
-     * approve a participant's request. Ownership is remembered so the owner comes
-     * back as the owner.
+     * Without this a refresh would cost the Host the room: their connection drops,
+     * and if no one else is there there's no one to inherit the role, so the room
+     * would sit hostless with no playback control and no one to approve requests.
+     * We remember the owner so they come back as the owner.
      */
     this.hostUserId = '';
 
     /**
-     * Authoritative shared playback state.
-     * `currentTime` is the position *as of* `updatedAt`; while playing, the
-     * true position is derived from the clock rather than being polled, so an
-     * idle room costs zero CPU and no timer drift accumulates.
+     * The shared playback state everyone agrees on.
+     * `currentTime` is the position *as of* `updatedAt`; while playing, the real
+     * position is worked out from the clock instead of being polled, so an idle
+     * room uses no CPU and timer drift doesn't build up.
      */
     this.state = {
       videoId,
@@ -147,16 +144,16 @@ class Room {
   }
 
   /**
-   * The roster in join order — the order people see in the sidebar, and the
-   * order host succession follows.
+   * The participant list in join order — the order people see in the sidebar, and
+   * the order the host role is passed down in.
    *
-   * Cached rather than re-sorted per call. One playback event can ask for this
-   * list three times (the participants payload, the approver queue, a snapshot),
-   * each ask otherwise an O(n log n) sort, and a join or role change broadcasts
-   * it to the whole room. `joinedAt` is fixed when someone joins, so the ordering
-   * only changes where the Map grows or shrinks — that is where the cache drops.
+   * It's cached instead of re-sorted on every call. One playback event can ask for
+   * this list a few times (participants payload, approver queue, a snapshot), and
+   * each ask would otherwise be a sort. `joinedAt` never changes once someone
+   * joins, so the order only changes when the Map grows or shrinks, and that's
+   * where the cache is cleared.
    *
-   * Treat the returned array as read-only: it is shared between callers.
+   * Treat the returned array as read-only — it's shared between callers.
    * @returns {Participant[]}
    */
   listParticipants() {
@@ -166,7 +163,7 @@ class Room {
     return this.roster;
   }
 
-  /** Called by every path that adds or removes a participant. */
+  /** Called wherever a participant is added or removed. */
   dropRosterCache() {
     this.roster = null;
   }
@@ -185,10 +182,10 @@ class Room {
       return { participant: existing, rejoined: true };
     }
 
-    // First person into an empty room owns it — this is the *only* place the
-    // host role is minted from an arrival, so it cannot be claimed from a client
-    // payload. A demo room is the exception: it is deliberately ownerless, so
-    // every arrival — the first included — lands as a plain Viewer.
+    // The first person into an empty room becomes the host. This is the only
+    // place the host role is given from someone arriving, so it can't be claimed
+    // from a client message. A demo room is the exception: it's meant to have no
+    // owner, so every arrival — including the first — joins as a plain Viewer.
     const isFirstEver = !this.demo && this.participants.size === 0 && !this.hostClaimed;
     const participant = new Participant({
       userId,
@@ -199,10 +196,10 @@ class Room {
     this.participants.set(userId, participant);
     this.dropRosterCache();
     if (participant.isHost) this.hostUserId = userId;
-    // Cover the case arrival alone cannot: the room has no host right now, and
-    // this newcomer is either its recorded owner returning, or the only person
-    // there. Either way the room must not stay in a state where nothing can be
-    // decided.
+    // Handle the case where just being first isn't enough: the room has no host
+    // right now, and this person is either its saved owner coming back, or the
+    // only one here. Either way the room shouldn't be left with no one who can
+    // make decisions.
     this.ensureHost();
     if (this.participants.size > this.peakSize) this.peakSize = this.participants.size;
     this.touch();
@@ -219,31 +216,31 @@ class Room {
     this.participants.delete(userId);
     this.dropRosterCache();
 
-    // Their unanswered proposals are meaningless now.
+    // Their still-unanswered proposals don't matter now.
     for (const [requestId, request] of this.requests) {
       if (request.userId === userId) this.requests.delete(requestId);
     }
 
-    // Never leave a room without someone who can decide things.
+    // Don't leave a room without someone who can make decisions.
     this.ensureHost();
     this.touch();
     return participant;
   }
 
   /**
-   * Guarantee the room has a Host, and say who it is.
+   * Make sure the room has a Host, and return who it is.
    *
-   * Priority: whoever already holds the role; then this room's recorded owner if
-   * they are present, so a Host refreshing an otherwise-empty page returns as the
-   * Host instead of a Participant; then the longest-tenured person still in the
-   * room. Idempotent — safe to call on every arrival and every departure.
+   * Order: whoever already has the role; then this room's saved owner if they're
+   * present, so a Host refreshing an otherwise-empty page comes back as the Host
+   * instead of a Participant; then the person who's been here longest. It's safe
+   * to call on every join and every leave.
    *
    * @returns {Participant|null} the host, or null while the room is empty
    */
   ensureHost() {
-    // A demo room must never acquire a Host. Without this guard the code below
-    // would promote the longest-tenured Viewer the moment anyone arrived, and
-    // that person could then change the shared video for the whole demo.
+    // A demo room must never get a Host. Without this the code below would
+    // promote the longest-tenured Viewer as soon as anyone arrived, and they
+    // could then change the shared video for the whole demo.
     if (this.demo) return null;
 
     const current = this.getHost();
@@ -262,13 +259,12 @@ class Room {
     heir.setRole(ROLES.HOST);
     this.hostUserId = heir.userId;
     this.hostClaimed = true;
-    // A role change moves the person within the roster view they are served.
+    // A role change moves the person around in the roster view they're shown.
     this.dropRosterCache();
-    // Ownership is durable data, not just live socket state: a room whose Host
-    // was inherited has to remember *that*, or a restart would hand the restored
-    // row back still naming the person who left. Writes are debounced per room
-    // (db/mongo.js), and a succession is a once-in-a-room event, so this costs
-    // essentially nothing.
+    // Ownership is saved data, not just live socket state: a room whose host was
+    // inherited needs to remember that, or a restart would hand back the restored
+    // row still naming the person who left. Writes are debounced per room
+    // (db/mongo.js) and a succession is rare, so this basically costs nothing.
     this.markDirty();
     return heir;
   }
@@ -295,9 +291,9 @@ class Room {
   }
 
   /**
-   * Send to only the people allowed to approve requests (Host + Moderators).
-   * Keeping the pending-request queue off ordinary participants' sockets means
-   * a participant cannot enumerate who else is ignoring them.
+   * Send to only the people who can approve requests (Host + Moderators). Not
+   * sending the pending-request queue to normal participants means a participant
+   * can't see who else is being ignored.
    */
   broadcastToApprovers(event, payload) {
     const socketIds = this.listParticipants()
@@ -319,7 +315,7 @@ class Room {
   // ------------------------------------------------------- playback mutation
 
   /**
-   * The single funnel through which all playback changes pass.
+   * The one place all playback changes go through.
    * Returns the broadcast body, or an error object if the payload is invalid.
    *
    * @param {object} opts
@@ -333,7 +329,7 @@ class Room {
     const actor = actorUserId ? this.participants.get(actorUserId) : null;
     const now = Date.now();
 
-    // Freeze the derived position into a concrete number before mutating.
+    // Turn the derived position into a real number before we change anything.
     const livePosition = this.positionNow();
 
     switch (action) {
@@ -371,9 +367,9 @@ class Room {
         this.state.videoId = videoId;
         this.state.currentTime = 0;
         this.state.duration = 0;
-        // Intentional: a new video starts playing for the whole room. Browsers
-        // may block the unmuted autoplay, which the client handles with a
-        // "Tap to sync" overlay rather than by desyncing the room.
+        // On purpose: a new video starts playing for the whole room. Browsers
+        // might block the unmuted autoplay, which the client handles with a
+        // "Tap to sync" overlay instead of letting the room drift apart.
         this.state.isPlaying = true;
         break;
       }
@@ -390,14 +386,14 @@ class Room {
   }
 
   /**
-   * Records what a client's player actually loaded.
+   * Saves what a client's player actually loaded.
    *
-   * The duration is functional: without it `seek` cannot clamp and the drift
-   * maths has no ceiling. The title is only a label (see `videoTitle`).
+   * The duration is functional: without it `seek` can't clamp and the drift
+   * maths has no upper limit. The title is just a label (see `videoTitle`).
    *
-   * Accepted from anyone in the room — the value grants no control, and the
-   * first person to finish loading a video is usually not the Host. Anything a
-   * client sends here is validated at the wire boundary, not in this method.
+   * We accept this from anyone in the room — the value doesn't grant any control,
+   * and the first person to finish loading a video usually isn't the Host. The
+   * input is checked at the socket boundary, not in this method.
    * @param {number} duration
    * @param {string} [title]
    */
@@ -408,8 +404,8 @@ class Room {
     const next = typeof title === 'string' ? title : '';
     if (next && next !== this.videoTitle) {
       this.videoTitle = next;
-      // The title is the only human-readable field in the durable row, so
-      // learning it is worth a write even when nothing about playback changed.
+      // The title is the only human-readable field in the saved row, so learning
+      // it is worth a write even when nothing about playback changed.
       this.markDirty();
     }
   }
@@ -420,13 +416,13 @@ class Room {
    */
   buildSyncPayload(actor, source) {
     return {
-      // Spec field name, kept verbatim so the event table in the brief maps 1:1.
+      // Name matches the spec so the event table in the brief maps directly.
       playState: this.state.isPlaying ? 'playing' : 'paused',
       videoId: this.state.videoId,
       currentTime: this.state.currentTime,
-      // ...and the position the client should actually be at, resolved against
-      // the server clock, so no client has to guess how long the event spent
-      // in flight.
+      // ...and the position the client should really be at, worked out against
+      // the server clock, so no client has to guess how long the event took to
+      // arrive.
       position: this.positionNow(),
       duration: this.state.duration,
       isPlaying: this.state.isPlaying,
@@ -447,7 +443,8 @@ class Room {
   // ------------------------------------------------------- approval workflow
 
   /**
-   * Turn a forbidden-but-requestable intent into a queued proposal.
+   * Turn an action the user can't do directly (but can ask for) into a queued
+   * proposal.
    * @param {object} opts
    * @param {string} opts.userId
    * @param {string} opts.action
@@ -466,10 +463,10 @@ class Room {
       return { ok: false, error: 'This room has too many pending requests right now.' };
     }
 
-    // One pass over the queue answers two questions at once: how many proposals
-    // this person already has open (back-pressure), and whether they are
-    // re-proposing something already waiting. Re-sending `pause` replaces the
-    // pending one rather than making the host approve the same thing twice.
+    // One pass over the queue answers two things at once: how many proposals this
+    // person already has open (so they can't spam), and whether they're re-sending
+    // something already waiting. Re-sending `pause` replaces the pending one
+    // instead of making the host approve the same thing twice.
     let mine = 0;
     let already = null;
     for (const request of this.requests.values()) {
@@ -536,8 +533,8 @@ class Room {
   resolveRequest({ requestId, approved, resolverUserId }) {
     const request = this.requests.get(requestId);
     if (!request) {
-      // Not an error worth surfacing: the room leader may have been watching
-      // the same request expire a second earlier on another device.
+      // Not worth surfacing as an error: the host might have just watched this
+      // same request expire a second earlier on another device.
       return { ok: true, alreadyGone: true };
     }
     this.requests.delete(requestId);
@@ -557,7 +554,7 @@ class Room {
     return { ok: true, request: this.serializeRequest(request), executed: executed.sync };
   }
 
-  /** Drop proposals nobody acted on before their TTL. @returns {object[]} expired ones */
+  /** Remove proposals no one acted on before their TTL. @returns {object[]} the expired ones */
   expireStaleRequests() {
     const cutoff = Date.now() - config.room.requestTtlMs;
     const expired = [];
@@ -593,8 +590,8 @@ class Room {
     }
 
     const nextRole = normalizeRole(role);
-    // Demoting the Host through assign_role would strand the room without an
-    // owner; the transfer_host path is the deliberate way to do it.
+    // Letting assign_role demote the Host would leave the room with no owner;
+    // transfer_host is the intended way to move the role.
     if (target.isHost || nextRole === ROLES.HOST) {
       return { ok: false, error: 'Use "Transfer host" to move the Host role.' };
     }
@@ -624,7 +621,7 @@ class Room {
 
     actor.setRole(ROLES.PARTICIPANT);
     target.setRole(ROLES.HOST);
-    // Ownership moves with the role, so a later refresh restores the *new* Host.
+    // Ownership moves with the role, so a later refresh restores the new host.
     this.hostUserId = target.userId;
     this.touch();
     this.markDirty();
@@ -655,9 +652,9 @@ class Room {
     this.chatLog.push(message);
     if (this.chatLog.length > 120) this.chatLog.shift();
     this.touch();
-    // Chat is durable now: schedule the debounced write so the conversation
-    // survives a restart. The 2 s debounce (db/mongo.js) coalesces a burst of
-    // messages into a single write rather than one per line.
+    // Chat is saved now: mark it so the debounced write keeps the conversation
+    // across a restart. The 2 s debounce (db/mongo.js) turns a burst of messages
+    // into a single write instead of one per line.
     this.markDirty();
     return message;
   }
@@ -665,8 +662,8 @@ class Room {
   // --------------------------------------------------------------- snapshot
 
   /**
-   * Everything one client needs to render the room from scratch. Sent on join
-   * and on reconnect, so a client never has to "catch up" on missed events.
+   * Everything a client needs to draw the room from scratch. Sent on join and on
+   * reconnect, so a client never has to catch up on events it missed.
    * @param {string} userId
    */
   snapshotFor(userId) {
@@ -681,8 +678,8 @@ class Room {
       pendingRequests: me?.isApprover ? this.listRequests() : [],
       chat: this.chatLog.slice(-50),
       createdAt: this.createdAt,
-      // Tells the client to run its own player (local play/pause/seek) instead
-      // of following the room's shared clock. See `useYouTubeSync`.
+      // Tells the client to run its own player (local play/pause/seek) instead of
+      // following the room's shared clock. See `useYouTubeSync`.
       demo: this.demo,
     };
   }

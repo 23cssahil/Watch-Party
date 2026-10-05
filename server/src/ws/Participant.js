@@ -1,15 +1,15 @@
 const { normalizeRole, capabilitiesFor, ROLES } = require('./permissions');
 
 /**
- * One connected human inside a Room.
+ * One connected person inside a Room.
  *
- * Keyed by `userId` (a uuid the client generates and keeps in localStorage)
- * rather than by `socketId`, because a socket dies on every network blip but
- * the person does not. On reconnect the same Participant record simply gets a
- * new socketId, which means:
- *   - roles survive a refresh (the Host cannot accidentally lose their room),
- *   - `remove_participant { userId }` is meaningful and stable,
- *   - the participant list does not fill up with ghosts of dropped sockets.
+ * We key by `userId` (a uuid the client makes and stores in localStorage)
+ * instead of `socketId`, because the socket drops on every network blip but the
+ * person is still there. On reconnect the same Participant just gets a new
+ * socketId, which means:
+ *   - roles survive a refresh (the Host doesn't lose their room),
+ *   - `remove_participant { userId }` stays stable,
+ *   - the list doesn't fill up with stale entries from dropped sockets.
  */
 class Participant {
   /**
@@ -50,9 +50,9 @@ class Participant {
   }
 
   /**
-   * The shape that is safe to put on the wire to *other* clients.
-   * Note `socketId` is deliberately excluded — it is a server-side routing
-   * detail and leaking it invites clients to try addressing sockets directly.
+   * The shape that's safe to send to *other* clients. `socketId` is left out on
+   * purpose — it's only used for routing on the server and clients have no need
+   * for it.
    * @returns {object}
    */
   toPublicJSON() {
