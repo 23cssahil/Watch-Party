@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { useRoomStore } from '../store/roomStore';
 
 /**
- * Share card: the two things a host actually sends to a friend — a code to type
- * and a link to tap.
+ * Share card: the two things a host sends to a friend - a code to type and a link
+ * to tap.
  *
- * `navigator.clipboard` needs a secure context, so the fallback matters: a demo
- * over a plain-http LAN IP would otherwise appear broken on the one machine
- * doing the presenting.
+ * navigator.clipboard needs a secure context, so the fallback matters: presenting a
+ * demo over a plain-http LAN IP would otherwise look broken on the presenting
+ * machine.
  */
 export default function ShareCard() {
   const roomId = useRoomStore((state) => state.roomId);

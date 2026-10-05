@@ -7,9 +7,9 @@ import { RoleBadge } from './ParticipantList';
 /**
  * Room chat.
  *
- * Kept in the store (last 120 server-side, last 50 replayed on join) rather
- * than in a database: chat that outlives the party is a different product, and
- * keeping it in memory means there is nothing sensitive to clean up later.
+ * Kept in the store (last 120 server-side, last 50 replayed on join) instead of a
+ * database. Chat that outlives the party is a different product, and keeping it in
+ * memory means there's nothing sensitive to clean up later.
  */
 export default function ChatPanel() {
   const chat = useRoomStore((state) => state.chat);
@@ -17,9 +17,9 @@ export default function ChatPanel() {
   const [draft, setDraft] = useState('');
   const scroller = useRef<HTMLDivElement | null>(null);
 
-  // Newest last, and always pinned to the bottom — but only if the reader has
-  // not scrolled up to re-read something. Forcing a jump mid-read is worse than
-  // a message that appears off-screen.
+  // Newest last, pinned to the bottom - but only if the reader hasn't scrolled up
+  // to re-read something. Forcing a jump mid-read is worse than a message appearing
+  // just off-screen.
   useEffect(() => {
     const node = scroller.current;
     if (!node) return;

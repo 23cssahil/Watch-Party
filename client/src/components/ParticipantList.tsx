@@ -9,18 +9,16 @@ const PAGE_SIZE = 8;
 /**
  * The roster, with the Host's governance controls.
  *
- * Every action here is offered only because the *server* said this viewer may
- * take it (`capabilities.allowedActions` includes `assign_role`), and each one
- * is still re-checked on arrival. The buttons are a convenience, not a defence.
+ * Every action here shows up only because the server said this viewer may take it
+ * (capabilities.allowedActions includes assign_role), and each one is still re-checked
+ * on arrival. The buttons are a convenience, not a security check.
  *
- * Note what a demoted Host sees: the moment `role_assigned` arrives for them,
- * the capability list in their own store is replaced by the server's new answer
- * and these controls disappear from their screen without any local logic
- * deciding to hide them.
+ * What a demoted Host sees: as soon as role_assigned arrives for them, the
+ * capability list in their store is replaced by the server's new answer and these
+ * controls disappear on their own, with no local logic deciding to hide them.
  *
- * Pagination: with many viewers the list can get very long. We show PAGE_SIZE
- * participants at a time with Previous / Next navigation, keeping it inside the
- * panel without horizontal scroll.
+ * Pagination: with many viewers the list gets long, so we show PAGE_SIZE at a time
+ * with Previous / Next, keeping it inside the panel without horizontal scroll.
  */
 export default function ParticipantList() {
   const participants = useRoomStore((state) => state.participants);

@@ -4,16 +4,16 @@ import { useRoomStore } from '../store/roomStore';
 
 interface Props {
   code: string;
-  /** The server's own words, so the screen never invents a reason. */
+  /** The server's own message, so the screen doesn't invent a reason. */
   error: string;
 }
 
 /**
- * Shown when the room behind a share link refused to be joined.
+ * Shown when the room behind a share link can't be joined.
  *
- * Two distinct cases are handled:
- * 1. Host explicitly ended the party — show a "party over" message and no retry.
- * 2. Room not found (server restarted, etc.) — show retry and technical hint.
+ * Two cases:
+ * 1. Host ended the party - show a "party over" message, no retry.
+ * 2. Room not found (server restarted, etc.) - show retry and a short hint.
  */
 export default function RoomUnavailable({ code, error }: Props) {
   const hostEnded =

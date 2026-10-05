@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 interface Props {
-  /** True when the engine should run — the effect is switched on AND the video is playing. */
+  /** True when the engine should run - effect is on AND the video is playing. */
   active: boolean;
 }
 
@@ -23,21 +23,20 @@ interface Particle {
 /**
  * A synthetic, audio-free music visualiser that lives in the gutter.
  *
- * YouTube's player is a cross-origin iframe, so the Web Audio API can never read
- * its real frequencies — the browser blocks it by design. This canvas therefore
- * *models* a beat rather than detecting one: a fixed BPM drives a kick envelope,
- * and a few out-of-phase oscillators fill in a spectrum that looks alive.
+ * YouTube's player is a cross-origin iframe, so the Web Audio API can't read its
+ * real frequencies - the browser blocks it. So this canvas fakes a beat instead of
+ * detecting one: a fixed BPM drives a kick envelope, and a few out-of-phase
+ * oscillators fill in a spectrum that looks lively.
  *
- * Crucially the canvas is a sibling sitting *behind* the video frame, and every
- * bar is drawn only inside the dark space to the left and right of the picture —
- * never over it — so the viewer's screen stays unobstructed. The gutter width is
- * measured live from the frame's own bounding box, which means the effect adapts
- * to any window size and simply steps aside when there is no room beside it.
+ * The canvas is a sibling behind the video frame, and each bar is drawn only in
+ * the dark space to the left and right of the picture, never over it, so the video
+ * stays clear. The gutter width is measured live from the frame's bounding box, so
+ * it adapts to any window size and steps aside when there's no room beside it.
  *
- * Bubbles are released from the crest of a bar as the beat peaks and rise to the
- * top of the video before dissolving there. It is fully decorative —
- * `pointer-events: none`, `aria-hidden` — gated on playback, parks itself once
- * the energy has decayed, and does not run at all under `prefers-reduced-motion`.
+ * Bubbles spawn off the top of a bar at each beat peak and rise to the top of the
+ * video before dissolving. It's purely decorative (pointer-events: none,
+ * aria-hidden), only runs during playback, parks itself once the energy fades, and
+ * doesn't run at all under prefers-reduced-motion.
  */
 export default function BeatVisualizer({ active }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -58,8 +57,8 @@ export default function BeatVisualizer({ active }: Props) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // The canvas fills `.stage`; the video is the `.stage__frame` sitting on top
-    // of it. We read that frame's box each frame to know where the gutters are.
+    // The canvas fills .stage; the video is .stage__frame on top of it. We read
+    // that frame's box each frame to know where the gutters are.
     const stage = canvas.parentElement;
     const frameEl = stage?.querySelector('.stage__frame') as HTMLElement | null;
 
@@ -91,8 +90,8 @@ export default function BeatVisualizer({ active }: Props) {
       const target = activeRef.current ? 1 : 0;
       energy += (target - energy) * 0.05;
 
-      // Room gone quiet and the last of the energy has bled out: clear once and
-      // park. The `active` effect above restarts us on the next beat.
+      // Room's quiet and the energy's bled out: clear once and park. The `active`
+      // effect above restarts us on the next beat.
       if (target === 0 && energy < 0.01) {
         particles.length = 0; // don't strand half-risen bubbles for the next play
         ctx.clearRect(0, 0, w, h);
@@ -100,9 +99,9 @@ export default function BeatVisualizer({ active }: Props) {
         return;
       }
 
-      // Measure the video frame against the canvas to find the two side gutters
-      // and the vertical band the picture occupies. Everything is drawn inside
-      // those gutters so the video itself is never covered.
+      // Measure the video frame against the canvas to find the two side gutters and
+      // the vertical band the picture covers. Everything draws inside the gutters so
+      // the video is never covered.
       let gLeft = 0;
       let gRight = 0;
       let vTop = 0;
@@ -182,10 +181,9 @@ export default function BeatVisualizer({ active }: Props) {
       drawBank(0, gLeft, 0);
       drawBank(w - gRight, gRight, MAX_PER_BANK);
 
-      // Bubbles — released from the crest of a bar as the beat peaks, then they
-      // rise the full height of the picture and dissolve at its top edge. No
-      // gravity pulls them back, so a bubble always reaches the top instead of
-      // stalling halfway.
+      // Bubbles - spawn off the top of a bar at each beat peak, then rise the full
+      // height of the picture and dissolve at its top edge. No gravity pulls them
+      // back, so a bubble always reaches the top instead of stalling halfway.
       if (beatIndex !== lastBeat) {
         lastBeat = beatIndex;
         if (energy > 0.25 && particles.length < MAX_PARTICLES && spawn.length) {
@@ -245,7 +243,7 @@ export default function BeatVisualizer({ active }: Props) {
   return <canvas ref={canvasRef} className="beat" aria-hidden="true" />;
 }
 
-/** Rounded-top bar path, drawn manually so it works without the newer ctx.roundRect. */
+/** Rounded-top bar path, drawn by hand so it works without the newer ctx.roundRect. */
 function traceBar(
   ctx: CanvasRenderingContext2D,
   x: number,

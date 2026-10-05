@@ -6,18 +6,17 @@ import { REQUEST_LABELS } from '../types';
 import type { ApprovalRequest } from '../types';
 
 /**
- * The approval inbox — the visible half of the "participant must request
- * approval" requirement.
+ * The approval inbox - the visible half of the "participant must request approval"
+ * requirement.
  *
- * Two details worth defending:
+ * Two things worth pointing out:
  *
- * - The queue is delivered **only to Host and Moderators** by the server
- *   (`broadcastToApprovers`). A participant's socket never learns what anybody
- *   else proposed.
- * - The countdown is real, not decorative. Requests expire after 60 s on the
- *   server, so a proposal made five minutes ago can never be approved into
- *   action — otherwise a Host returning to an idle tab could suddenly yank a
- *   room that had moved on.
+ * - The server sends the queue only to Host and Moderators (broadcastToApprovers).
+ *   A participant's socket never sees what anybody else proposed.
+ * - The countdown is real, not just decoration. Requests expire after 60s on the
+ *   server, so a proposal from five minutes ago can't be approved into action -
+ *   otherwise a Host coming back to an idle tab could suddenly yank a room that
+ *   had moved on.
  */
 export default function RequestQueue() {
   const requests = useRoomStore((state) => state.requests);

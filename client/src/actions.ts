@@ -2,19 +2,17 @@ import { getIdentity, rememberUsername, socket } from './socket';
 import type { ApprovalRequest, PlaybackAction, Role } from './types';
 
 /**
- * ---------------------------------------------------------------------------
- * Outbound actions — plain functions, not a hook.
- * ---------------------------------------------------------------------------
+ * Outbound actions - plain functions, not a hook.
  *
- * Deliberately *not* a `useActions()` hook. The socket is a module singleton, so
- * anything that emits on it should be callable from anywhere without a component
- * having to subscribe to something. Making these free functions also keeps the
- * inbound-listener hook (`useSocket`) a strict singleton: if actions lived
- * there too, importing the hook in two components would register every listener
- * twice and each event would be handled two or three times.
+ * These are deliberately not a useActions() hook. The socket is a module singleton,
+ * so anything that emits on it should be callable from anywhere without a component
+ * subscribing to something. Keeping them as plain functions also makes sure the
+ * inbound-listener hook (useSocket) stays a single setup: if actions lived there
+ * too, importing the hook in two components would register each listener twice and
+ * events would be handled two or three times.
  *
- * Note what is missing: no `requestPlay()`, no `askToPause()`. A caller emits
- * `play()` and the server decides whether that is an action or a request.
+ * Note what's not here: no requestPlay(), no askToPause(). A caller just emits play()
+ * and the server decides whether that's an action or a request.
  */
 
 export interface JoinResult {
@@ -58,9 +56,9 @@ export function leaveRoom(): void {
 }
 
 // --------------------------------------------------------------- playback
-// Each of these is a bare intent. `play()` from a Participant does not play the
-// room; the server's gate turns it into a `request_pending` back to the sender
-// and a `request_received` to the Host. Same call either way.
+// Each of these just states an intent. A `play()` from a Participant doesn't play
+// the room directly; the server's check turns it into a `request_pending` back to
+// the sender and a `request_received` to the Host. It's the same call either way.
 
 export const play = (): void => {
   socket.emit('play');
@@ -105,8 +103,8 @@ export function rejectRequest(requestId: string): void {
 
 /**
  * The explicit "ask the host" path, used by the request panel where a
- * participant can attach a note. Identical in effect to pressing play and being
- * downgraded, but it lets the participant explain themselves.
+ * participant can add a note. It has the same effect as pressing play and being
+ * turned into a request, but it lets the participant explain themselves.
  */
 export function requestApproval(
   action: PlaybackAction,
@@ -128,7 +126,7 @@ export function react(emoji: string): void {
   socket.emit('reaction', { emoji });
 }
 
-/** Pull the authoritative state again — used by "Re-sync me". */
+/** Pull the authoritative state again - used by "Re-sync me". */
 export function requestSync(): void {
   socket.emit('sync_request');
 }

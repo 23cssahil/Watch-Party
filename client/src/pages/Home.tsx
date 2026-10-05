@@ -7,40 +7,27 @@ import { extractVideoId } from '../lib/format';
 import type { JoinResult } from '../actions';
 import SiteFooter from '../components/SiteFooter';
 
-/**
- * Shown when a button was pressed after the transport had *stopped* retrying.
- *
- * Distinct from the waking case below: there is nothing in flight to queue a click
- * into, so this is the one refusal that must send the user to the visible retry
- * control. The rule it encodes is the one the server follows for rate limits too —
- * a control the user can see must never be clickable into silence.
- */
+// Shown when a button was pressed after the transport had stopped retrying.
+// Different from the waking case below: nothing is in flight to queue into, so
+// this one has to point the user at the visible retry control.
 const OFFLINE_COPY =
   'The realtime server is unreachable and retries have stopped. Press "Try again" beside the status line below, then send this again.';
 
-/**
- * Shown when a click landed while the socket was still opening *and* was kept.
- *
- * A free instance that has gone to sleep cannot be made fast from client code —
- * the boot takes tens of seconds and no amount of retrying shortens it. What was
- * fixed here is that the click used to be thrown away during that wait, so the
- * user paid the full boot time and then had to press the button a second time.
- */
+// Shown when a click landed while the socket was still opening and was kept.
+// A sleeping free instance takes tens of seconds to boot and client code can't
+// speed that up. The fix here was that the click used to get thrown away during
+// the wait - now it's queued and runs on connect.
 const WAKING_COPY =
   'The service is waking up — a few seconds normally, up to half a minute if it has been idle. Your click is queued: the room action runs on its own the moment the connection opens.';
 
-/**
- * The public demo party's fixed code, matching `config.demo.code` on the server.
- * It contains an `O`, which the room-code generator excludes, so a random room
- * can never collide with it. It is ownerless: every visitor lands as a Viewer,
- * watches the same "Despacito", and their play/pause/seek is local to them.
- */
+// The public demo party's fixed code, matching config.demo.code on the server.
+// It has an `O`, which the room-code generator excludes, so a random room can't
+// collide with it. It's ownerless: everyone joins as a Viewer and their controls
+// are local to them.
 const DEMO_ROOM_CODE = 'DEMO24';
 
-/**
- * One row of the landing page's "Live rooms" directory, as returned by
- * `GET /api/rooms`. Read-only summary only — no ids, chat or queue.
- */
+// One row of the landing page's "Live rooms" list, from GET /api/rooms.
+// Just a summary - no ids, chat or queue.
 interface LiveRoom {
   code: string;
   host: string;
@@ -50,12 +37,12 @@ interface LiveRoom {
 }
 
 /**
- * Landing page: choose a name, then start a room or enter somebody else's code.
+ * Landing page: pick a name, then start a room or enter someone else's code.
  *
- * The room code does not exist until the server answers `create_room`, so
- * navigation happens inside the Socket.IO acknowledgement rather than
- * optimistically. An ack is the only honest way to know a join worked — and it
- * is what lets us show "no room with that code" instead of a blank screen.
+ * The room code doesn't exist until the server answers create_room, so we
+ * navigate inside the Socket.IO acknowledgement instead of guessing. The ack is
+ * the only reliable way to know a join worked, and it lets us show "no room with
+ * that code" instead of a blank screen.
  */
 export default function Home() {
   const navigate = useNavigate();
@@ -67,29 +54,23 @@ export default function Home() {
   const [video, setVideo] = useState('');
   const [busy, setBusy] = useState<'create' | 'join' | null>(null);
   const [error, setError] = useState('');
-  /**
-   * An action pressed while the socket was still opening, replayed on connect.
-   * `queued` exists so the button can say what is actually happening; the ref
-   * holds the closure captured at click time, which is the click being honoured.
-   */
+  // An action pressed while the socket was still opening, replayed on connect.
+  // `queued` drives the button text; the ref holds the actual click to run later.
   const [queued, setQueued] = useState<'create' | 'join' | null>(null);
   const queuedRef = useRef<{ intent: 'create' | 'join'; run: () => void } | null>(null);
-  // The display-name box and an attention flag for it. A refusal that only
-  // lands in the error strip at the bottom is easy to miss, so we also pull the
-  // eye to the field itself (see `needName`).
+  // Name input + an alert flag. An error that only shows in the bottom strip is
+  // easy to miss, so we also flash the field itself (see needName).
   const nameRef = useRef<HTMLInputElement>(null);
   const [nameAlert, setNameAlert] = useState(false);
 
-  // Same attention treatment for the room-code box: the Join button stays enabled
-  // even when the code is empty, and a press then rings + shakes this field
-  // (see `needCode`) instead of the button reading as dead.
+  // Code input too: the Join button stays enabled even with an empty code, so a
+  // press rings + shakes this field (see needCode) instead of feeling dead.
   const codeRef = useRef<HTMLInputElement>(null);
   const [codeAlert, setCodeAlert] = useState(false);
 
-  // The right-hand "Live rooms" directory: a polled, read-only list. Joining a
-  // listed room reuses the single Display name field above — no second box. When
-  // someone taps Join with no name yet, we remember which room they wanted
-  // (`pendingRoom`) so the field can ring and Enter can finish the join.
+  // The "Live rooms" list on the right: a polled, read-only list. Joining a listed
+  // room reuses the one name field above. With no name yet we remember which room
+  // (pendingRoom) so Enter can finish the join.
   const [liveRooms, setLiveRooms] = useState<LiveRoom[]>([]);
   const [pendingRoom, setPendingRoom] = useState<string | null>(null);
 
@@ -107,9 +88,9 @@ export default function Home() {
       pending.run();
       return;
     }
-    // `disconnected` is terminal — the transport has stopped trying. Keeping an
-    // invisible queue alive behind a spinner would be a lie, so the button is
-    // handed back and the visible "Try again" becomes the only action left.
+    // `disconnected` is terminal - the transport stopped trying. Keeping a hidden
+    // queue alive behind a spinner would be misleading, so we hand the button back
+    // and leave the visible "Try again" as the only action.
     if (status === 'disconnected' && queuedRef.current) {
       queuedRef.current = null;
       setQueued(null);
@@ -117,9 +98,9 @@ export default function Home() {
     }
   }, [status]);
 
-  // Poll the live-rooms directory. Same-origin `/api/rooms` (Vite proxies it in
-  // dev), so it needs no server URL. A failed fetch just keeps the last list —
-  // the demo row is rendered client-side regardless, so the panel is never blank.
+  // Poll the live-rooms list. Same-origin /api/rooms (Vite proxies it in dev), so
+  // no server URL needed. A failed fetch just keeps the last list - the demo row
+  // is rendered client-side anyway, so the panel is never blank.
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -129,7 +110,7 @@ export default function Home() {
         const data = await res.json();
         if (alive && Array.isArray(data.rooms)) setLiveRooms(data.rooms);
       } catch {
-        /* offline or a waking cold start — keep whatever we last showed */
+        /* offline or a waking cold start - keep whatever we last showed */
       }
     };
     load();
@@ -140,15 +121,15 @@ export default function Home() {
     };
   }, []);
 
-  /** Send now, or send the instant the connection opens. Never drop a click that can be kept. */
+  // Run now, or the moment the connection opens. Try not to drop a click we can keep.
   const runOrQueue = (intent: 'create' | 'join', run: () => void) => {
     if (status === 'connected') {
       setBusy(intent);
       run();
       return;
     }
-    // Terminal: no attempt is in flight, so a queue would hang behind a spinner
-    // that promises something nobody is going to deliver.
+    // Terminal: nothing in flight, so a queue would just hang behind a spinner
+    // promising something nobody's going to deliver.
     if (status === 'disconnected') {
       setError(OFFLINE_COPY);
       return;
@@ -179,21 +160,16 @@ export default function Home() {
     const target = code.trim().toUpperCase();
     if (target.length < 4) return needCode('Enter the room code first — then tap Join room.');
     // Each refusal states its own reason. This used to be a single silent
-    // `if (!ready) return`, so a correct code typed while the socket was still
-    // connecting — or before a name was filled in — did nothing at all, and the
-    // button read as dead.
+    // `if (!ready) return`, so a correct code typed while still connecting (or
+    // before a name) did nothing and the button felt dead.
     if (trimmed.length < 2) return needName('Pick a display name of at least 2 characters first.');
     setError('');
     runOrQueue('join', () => joinRoom(target, trimmed, onResult('join')));
   };
 
-  /**
-   * Refuse an action that needs a name — but make the refusal *seen*. The old
-   * behaviour only wrote to the bottom error strip, which a first-time visitor
-   * scrolling near the buttons never connected to the empty name box above, so
-   * the button read as broken. Here we also scroll the field into view, focus
-   * it and ring it, so it is obvious where to type.
-   */
+  // Refuse an action that needs a name, but make the refusal visible. Just writing
+  // to the bottom error strip was easy for a first-timer to miss, so we also scroll
+  // the field into view, focus it and ring it.
   const needName = (message: string) => {
     setError(message);
     setNameAlert(true);
@@ -202,12 +178,8 @@ export default function Home() {
     window.setTimeout(() => setNameAlert(false), 2600);
   };
 
-  /**
-   * The room-code twin of `needName`: the Join button is no longer disabled on an
-   * empty code, so a press with nothing typed must still be *seen* — we scroll the
-   * code box into view, focus it and ring + shake it, the same cue the demo name
-   * field gives.
-   */
+  // Same as needName but for the code box, since the Join button isn't disabled
+  // on an empty code - a press with nothing typed still needs to be seen.
   const needCode = (message: string) => {
     setError(message);
     setCodeAlert(true);
@@ -216,11 +188,8 @@ export default function Home() {
     window.setTimeout(() => setCodeAlert(false), 2600);
   };
 
-  /**
-   * Open the public demo party. A display name is required first — the brief
-   * asks that whoever opens the demo is greeted for their name before entering,
-   * so the button is deliberately gated on the same rule as joining a real room.
-   */
+  // Open the public demo party. A name is required first, gated on the same rule
+  // as joining a real room, so whoever opens the demo gets greeted by name.
   const onDemo = () => {
     if (trimmed.length < 2) return needName('Type your display name in the box above first — then tap 🎉 Demo room again.');
     setError('');
@@ -228,12 +197,9 @@ export default function Home() {
     navigate(`/room/${DEMO_ROOM_CODE}`);
   };
 
-  /**
-   * Drop into a room straight from the directory. It reuses the single Display
-   * name field at the top of the page — there is no second box. With no name
-   * yet, we remember the chosen room and ring that field (see `needName`), so
-   * typing a name and pressing Enter — or tapping Join again — finishes it.
-   */
+  // Join a room straight from the list. Reuses the one name field at the top - no
+  // second box. With no name yet we remember the room and ring the field, so typing
+  // a name + Enter (or tapping Join again) finishes it.
   const joinListedRoom = (roomCode: string) => {
     if (trimmed.length < 2) {
       setPendingRoom(roomCode);
@@ -244,8 +210,8 @@ export default function Home() {
     navigate(`/room/${roomCode.toUpperCase()}`);
   };
 
-  // Enter in the Display name field completes a directory room that was picked
-  // but is still waiting on a name. Anywhere else, Enter is left to the browser.
+  // Enter in the name field completes a listed room that's still waiting on a name.
+  // Anywhere else, Enter is left to the browser.
   const onNameKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter' && pendingRoom) {
       event.preventDefault();
@@ -253,8 +219,8 @@ export default function Home() {
     }
   };
 
-  // The demo is always the first row: the server pins it, and the fallback keeps
-  // it there even before the first fetch lands or if a cold server is still asleep.
+  // Demo is always the first row: the server pins it, and this fallback keeps it
+  // there even before the first fetch lands or if a cold server is still asleep.
   const demoRoom: LiveRoom =
     liveRooms.find((room) => room.isDemo) ?? {
       code: DEMO_ROOM_CODE,
@@ -265,12 +231,9 @@ export default function Home() {
     };
   const rows: LiveRoom[] = [demoRoom, ...liveRooms.filter((room) => !room.isDemo)];
 
-  /**
-   * Restart a connection the transport already gave up on.
-   *
-   * `reconnect_failed` is terminal: Socket.IO stops trying, and nothing in the UI
-   * was able to start it again short of reloading the page.
-   */
+  // Restart a connection the transport already gave up on. reconnect_failed is
+  // terminal - Socket.IO stops trying, and before this nothing short of a page
+  // reload could start it again.
   const retryConnection = () => {
     setError('');
     socket.connect();
@@ -287,8 +250,7 @@ export default function Home() {
         <div>
           <div className="home__brandline">
             <h1>Watch Party</h1>
-            {/* A live sound-wave that streams out of the title and fades into the
-                page — decorative, pure CSS, looping so the room feels on-air. */}
+            {/* A decorative CSS sound-wave under the title, loops to feel on-air. */}
             <span className="brand-wave" aria-hidden>
               {Array.from({ length: 18 }).map((_, i) => (
                 <i key={i} />
@@ -381,9 +343,9 @@ export default function Home() {
         <p className="home__status">
           <span className={`dot dot--${status === 'connected' ? 'ok' : status === 'connecting' ? 'wait' : 'bad'}`} />
           {/*
-            `connecting` means an attempt is in flight or the transport is
-            retrying after a drop; `disconnected` is reserved for "we stopped
-            trying", which is the only state where a manual retry is the answer.
+            `connecting` means an attempt is in flight or retrying after a drop;
+            `disconnected` is saved for "we stopped trying", the only state where a
+            manual retry is the answer.
           */}
           {status === 'connected'
             ? 'Connected to the realtime server'
@@ -405,9 +367,8 @@ export default function Home() {
             <span className="live-rooms__count">{rows.length}</span>
           </div>
 
-          {/* One room per line, demo pinned first. About five are visible at a
-              time; the rest scroll inside the list. Each row's Join reuses the
-              single Display name field above (see `joinListedRoom`). */}
+          {/* One room per line, demo first. ~five show at a time, rest scroll. Each
+              row's Join reuses the one name field above (see joinListedRoom). */}
           <ul className="live-rooms__list">
             {rows.map((room) => (
               <li key={room.code} className="live-room">

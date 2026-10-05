@@ -6,13 +6,12 @@ interface Props {
 }
 
 /**
- * Shown after the Host ejects this client.
+ * Shown after the Host removes this client.
  *
- * A dedicated screen rather than a toast, because the alternative is the room
- * page sitting there with an empty roster — which reads as a bug. It also stops
- * the reconnect handler from quietly putting the person back into the room they
- * were just removed from: `setRemoved` clears `roomId`, so there is nothing left
- * to re-claim.
+ * A full screen instead of a toast, since the alternative is the room page sitting
+ * there with an empty roster, which looks like a bug. It also stops the reconnect
+ * handler from quietly putting the person back into the room they were removed
+ * from: setRemoved clears roomId, so there's nothing left to re-claim.
  */
 export default function RemovedScreen({ removed }: Props) {
   const startOver = () => useRoomStore.getState().reset();

@@ -8,10 +8,10 @@ import Toasts from './components/Toasts';
 /**
  * Route shell.
  *
- * `useSocket()` is called exactly once, here, so the socket listeners live for
- * the whole session rather than being attached per page. Mounting it at the top
- * also means a hard refresh on /room/ABC123 re-establishes the room straight
- * from the URL, without Home ever having to render.
+ * `useSocket()` is called once here, at the top, so the socket listeners live for
+ * the whole session instead of being attached per page. Mounting it up here also
+ * means a hard refresh on /room/ABC123 reconnects to the room straight from the
+ * URL, without Home ever having to render.
  */
 export default function App() {
   useSocket();

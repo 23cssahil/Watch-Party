@@ -1,15 +1,12 @@
 /**
- * ---------------------------------------------------------------------------
  * The wire contract.
- * ---------------------------------------------------------------------------
  *
- * These interfaces mirror the payloads produced by
- * `server/src/ws/{Room,handlers}.js`. Keeping them in one file means the
- * TypeScript compiler is the thing that notices when a server payload field is
- * renamed — an event that compiles is an event whose shape is known.
+ * These interfaces match the payloads from server/src/ws/{Room,handlers}.js.
+ * Keeping them in one file means the TypeScript compiler catches it when a server
+ * payload field is renamed - if an event compiles, its shape is known.
  *
- * Event names are the assignment's own (`join_room`, `sync_state`,
- * `role_assigned`, ...) so the brief's table can be checked off line by line.
+ * Event names are the assignment's own (join_room, sync_state, role_assigned, ...)
+ * so they line up with the brief.
  */
 
 export type Role = 'host' | 'moderator' | 'participant';
@@ -21,9 +18,9 @@ export type GovernanceAction = 'assign_role' | 'remove_participant' | 'transfer_
 export type RoomAction = PlaybackAction | GovernanceAction | 'chat' | 'react';
 
 /**
- * Sent by the server alongside every participant. The client renders controls
- * from this list rather than from its own opinion about roles — so the UI can
- * never drift out of sync with the backend rules.
+ * Sent by the server with every participant. The client draws its controls from
+ * this list rather than guessing about roles, so the UI can't drift out of sync
+ * with the backend rules.
  */
 export interface Capabilities {
   role: Role;
@@ -229,8 +226,8 @@ export interface ClientEvents {
   sync_request: () => void;
   /**
    * Facts about the video this client's player loaded. The duration lets the
-   * server clamp seeks; the title is a label for the durable record and the
-   * share-link preview. Neither grants any control.
+   * server clamp seeks, and the title is a label for the saved record and the
+   * share-link preview. Neither one gives any control.
    */
   report_duration: (payload: { duration: number; title?: string }) => void;
   chat_message: (payload: { text: string }) => void;

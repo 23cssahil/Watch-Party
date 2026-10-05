@@ -21,25 +21,22 @@ import type {
 } from '../types';
 
 /**
- * ---------------------------------------------------------------------------
  * The inbound half of the realtime layer.
- * ---------------------------------------------------------------------------
  *
- * Every server event is folded into the store from one place, so there is a
- * single answer to "what happens when the host seeks?" — and it is in this file.
- * Outbound actions live in `actions.ts` instead; keeping them apart is what lets
- * this hook stay a strict singleton (calling it twice would double every
- * listener, and each event would be applied twice).
+ * Every server event is applied to the store from one place, so there's a single
+ * answer to "what happens when the host seeks?" and it's in this file. Outbound
+ * actions live in actions.ts instead; keeping them apart is what lets this hook
+ * stay a one-time setup (calling it twice would double every listener, and each
+ * event would be applied twice).
  *
- * The client **never** decides whether it is allowed to do something. It emits
- * the real intent (`play`, `seek`, `change_video`) and the server's permission
- * gate replies with either `sync_state` (applied) or `request_pending`
- * (escalated to the Host). If the rules were mirrored here, promoting someone
- * to Moderator would need matching code in every open browser tab, and any
- * drift between the two rule sets would be a security hole. As written, a role
- * change is one broadcast and nothing else.
+ * The client never decides whether it's allowed to do something. It just emits the
+ * real intent (play, seek, change_video) and the server's permission check replies
+ * with either sync_state (applied) or request_pending (turned into a request to the
+ * Host). If we copied the rules here, promoting someone to Moderator would need
+ * matching code in every open tab, and any mismatch would be a security hole. As it
+ * is, a role change is just one broadcast.
  *
- * Call exactly once, from `App`.
+ * Call this once, from App.
  */
 export function useSocket(): void {
   const store = useRoomStore;
@@ -54,15 +51,15 @@ export function useSocket(): void {
 
       const { roomId, me } = store.getState();
       if (roomId && me && hasConnectedOnce.current) {
-        // Reconnect: rejoin with the *same* userId. The server keys people by
-        // userId rather than socket id, which is what lets a Host keep their
-        // role across a dropped connection instead of rejoining as a viewer.
+        // Reconnect: rejoin with the same userId. The server keys people by userId
+        // rather than socket id, which is what lets a Host keep their role across a
+        // dropped connection instead of rejoining as a viewer.
         //
         // The acknowledgement matters as much as the emit: a server that restarts
-        // (every deploy, and every wake-up from a free tier's sleep) has lost its
-        // in-memory rooms, so this join is refused and the old code let that
-        // refusal pass as a toast while the page went on showing a stale room.
-        // Recording it as `joinError` makes the screen say what actually happened.
+        // (every deploy, and every wake-up from the free tier's sleep) has lost its
+        // in-memory rooms, so this join gets refused. The old code let that refusal
+        // pass as a toast while the page kept showing a stale room. Saving it as
+        // `joinError` makes the screen say what really happened.
         socket.emit(
           'join_room',
           { roomId, username: me.username, userId: getIdentity().userId },
@@ -75,13 +72,13 @@ export function useSocket(): void {
     };
 
     /**
-     * The link dropped — but retries are already scheduled, so the honest status
+     * The link dropped, but retries are already scheduled, so the truthful status
      * is "connecting", not "disconnected".
      *
-     * `disconnected` is reserved for `reconnect_failed` below, i.e. the transport
-     * genuinely stopped. That distinction is what makes the landing page's
-     * "Try again" button meaningful instead of decorative: it only appears when
-     * nothing is retrying any more.
+     * `disconnected` is saved for `reconnect_failed` below, i.e. when the transport
+     * really did stop. That difference is what makes the landing page's "Try again"
+     * button useful instead of just decoration: it only shows when nothing is
+     * retrying any more.
      */
     const onDisconnect = (reason: string) => {
       store.getState().setStatus('connecting');
@@ -93,24 +90,24 @@ export function useSocket(): void {
     /**
      * A connection attempt failed.
      *
-     * Socket.IO keeps retrying by itself, so this only keeps the status honest:
-     * after a manual retry from a gave-up state, the page says "connecting" while
-     * attempts are in flight instead of sitting on the terminal message.
+     * Socket.IO keeps retrying on its own, so this just keeps the status accurate:
+     * after a manual retry from a gave-up state, the page shows "connecting" while
+     * attempts are in flight instead of staying on the final message.
      */
     const onConnectError = () => {
       if (!socket.connected) store.getState().setStatus('connecting');
     };
 
     /**
-     * Every reconnection attempt has been used up.
+     * Every reconnection attempt has run out.
      *
-     * This is the one state where the page would otherwise sit on "Reconnecting"
-     * forever with nothing left happening, so it is recorded as a join refusal:
-     * that is what swaps the Room page to the screen with a working retry button
-     * (which also restarts the connection, not just the join).
+     * This is the one case where the page would otherwise sit on "Reconnecting"
+     * forever with nothing happening, so we record it as a join failure: that's
+     * what swaps the Room page to the screen with a working retry button (which
+     * also restarts the connection, not just the join).
      *
-     * It lives on the Manager (`socket.io`) rather than the Socket, because
-     * "gave up reconnecting" is a transport-level fact, not a namespace one.
+     * It's on the Manager (`socket.io`) rather than the Socket, because "gave up
+     * reconnecting" is a transport-level fact, not a namespace one.
      */
     const onReconnectFailed = () => {
       store.getState().setStatus('disconnected');
@@ -128,14 +125,14 @@ export function useSocket(): void {
       const previousPosition = expectedPosition(store.getState());
       store.getState().applySync(sync);
 
-      // Attribute the change to a person, but stay quiet about the 5-second
-      // heartbeat that only exists to correct drift.
+      // Say who caused the change, but stay quiet about the 5-second heartbeat
+      // whose only job is to correct drift.
       if (sync.source === 'heartbeat' || sync.source === 'snapshot') return;
 
-      // A *real* playback move just landed — fire the live pulse. This is not
-      // gated on `actor` or on "someone else": when the Host presses play, their
-      // own tab is on the receiving end of the same broadcast, so the stage should
-      // ripple for them too. The pulse is the room saying "that change was live".
+      // A real playback move just landed - fire the live pulse. It's not gated on
+      // `actor` or on "someone else": when the Host presses play, their own tab
+      // gets the same broadcast, so the stage should ripple for them too. The pulse
+      // is the room saying "that change was live".
       store.getState().bumpSyncPulse();
 
       const meId = store.getState().me?.userId;
@@ -249,16 +246,16 @@ export function useSocket(): void {
       });
 
     const onRemoved = ({ by, reason }: RemovedPayload) => {
-      // A distinct state, not just "left": the Room page swaps to a locked
-      // screen so the user cannot silently rejoin the room they were kicked from.
+      // A separate state, not just "left": the Room page switches to a locked
+      // screen so the user can't quietly rejoin the room they were kicked from.
       store.getState().setRemoved({ by, reason });
     };
 
     // Reserved for a deliberate "end the party for everyone" action, which the
-    // server does not send today: a Host pressing Leave hands the room to the
-    // longest-tenured survivor instead (§5 of the README), so viewers are never
-    // told the room died while it is still playing. Kept wired up because the
-    // event is in the contract, and the handling is the correct one if it arrives.
+    // server doesn't send today: a Host pressing Leave hands the room to the
+    // longest-tenured person still here (README §5), so viewers are never told the
+    // room died while it's still playing. It's kept wired up because the event is
+    // in the contract, and this handling is the right one if it ever arrives.
     const onRoomDeleted = ({ message }: { roomId: string; message: string }) => {
       store.getState().reset();
       store.getState().setJoinError(message || 'The host ended the party.');
@@ -316,7 +313,7 @@ export function useSocket(): void {
   }, [store]);
 }
 
-/** "Host paused the room" — the verb is chosen from what actually changed. */
+/** "Host paused the room" - the verb is picked from what actually changed. */
 function describeSync(
   sync: SyncState,
   previousVideoId: string | undefined,

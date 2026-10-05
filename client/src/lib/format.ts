@@ -10,14 +10,14 @@ export function formatTime(seconds: number): string {
   return hrs > 0 ? `${hrs}:${pad(mins)}:${pad(secs)}` : `${mins}:${pad(secs)}`;
 }
 
-/** 14:07 — a wall-clock stamp for chat lines. */
+/** 14:07 style - a wall-clock stamp for chat lines. */
 export function formatClock(timestamp: number): string {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-/** "just now" / "2m ago" — used in the chat and request list. */
+/** "just now" / "2m ago" - used in the chat and request list. */
 export function formatAgo(timestamp: number): string {
   const diff = Math.max(0, Date.now() - timestamp);
   const minutes = Math.floor(diff / 60000);
@@ -34,7 +34,7 @@ export function formatCountdown(expiresAt: number): string {
 
 /**
  * Accepts anything a user pastes and returns a bare 11-character id, or null.
- * Mirrors `server/src/utils/youtube.js` — the client does this purely for fast
+ * Mirrors server/src/utils/youtube.js. The client does this just for fast
  * feedback, the server re-validates and is the one that decides.
  */
 export function extractVideoId(input: string): string | null {

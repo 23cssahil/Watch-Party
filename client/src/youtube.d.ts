@@ -1,10 +1,10 @@
 /**
  * Minimal ambient typings for the YouTube IFrame Player API.
  *
- * The API is injected at runtime by https://www.youtube.com/iframe_api and
- * ships no official TypeScript definitions, and `@types/youtube` is unmaintained
- * — so we declare exactly the surface this app touches. If the API ever gains
- * or renames a method we use, the compiler tells us here rather than at runtime.
+ * The API is injected at runtime by https://www.youtube.com/iframe_api and has no
+ * official TypeScript definitions, and @types/youtube is unmaintained, so we
+ * declare just the surface this app uses. If the API gains or renames a method we
+ * call, the compiler catches it here instead of at runtime.
  */
 
 declare namespace YT {

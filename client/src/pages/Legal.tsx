@@ -2,10 +2,8 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import SiteFooter from '../components/SiteFooter';
 
-/**
- * A shared shell for the two static legal/info pages so they inherit the same
- * background, brand header and footer as the landing page — no new theme.
- */
+// Shared shell for the two static legal/info pages, so they use the same
+// background, brand header and footer as the landing page - no separate theme.
 function LegalShell({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
     <main className="home legal">

@@ -13,12 +13,12 @@ interface Props {
 }
 
 /**
- * Right-hand rail. On a narrow viewport it becomes a slide-over, because a
- * watch party is a video first and a sidebar second.
+ * Right-hand rail. On a narrow viewport it turns into a slide-over, since a watch
+ * party is a video first and a sidebar second.
  *
- * The Requests tab is only shown to people the server marked as approvers —
- * note that this is a *rendering* decision taken from the server's own
- * `capabilities.canApprove`, not a client-side guess about roles.
+ * The Requests tab only shows for people the server marked as approvers. That's a
+ * rendering decision taken from the server's own capabilities.canApprove, not a
+ * client-side guess about roles.
  *
  * Tabs:
  * - People: scrollable, paginated user list (in-room)

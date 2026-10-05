@@ -13,24 +13,21 @@ import RoomUnavailable from '../components/RoomUnavailable';
 /**
  * The room screen.
  *
- * Owns exactly one decision that is not obvious: *when* to join. A refresh on
- * `/room/ABC123`, a link pasted into a chat app, and the button on Home all
- * arrive here, so the join is driven by "the URL says a room, the store is not
- * in it" rather than by a click handler. That keeps deep links working without
- * any of the three entry paths having to know about the others.
+ * Owns one not-so-obvious decision: when to join. A refresh on /room/ABC123, a
+ * pasted link, and the Home button all land here, so the join is driven by "the
+ * URL names a room and the store isn't in it" instead of a click handler. That
+ * keeps deep links working without the three entry paths knowing about each other.
  *
- * The join's acknowledgement is consumed, not ignored. A refused join used to
- * arrive as a toast over a black stage, which reads as a broken page; now the
- * refusal is stored and this page swaps to `RoomUnavailable`, which says what
- * happened and offers a retry.
+ * The join's acknowledgement is checked, not ignored. A refused join used to show
+ * as a toast over a black stage (looks broken); now it's stored and this page
+ * swaps to RoomUnavailable, which explains it and offers a retry.
  */
 export default function Room() {
   const { code = '' } = useParams<{ code: string }>();
   const navigate = useNavigate();
-  // Held in state rather than memoised, so that saving a name is visible to the
-  // join effect on the next render. A first-time visitor on a dead link would
-  // otherwise be bounced back to the name gate after pressing retry and asked to
-  // introduce themselves again.
+  // Kept in state, not memoised, so saving a name is visible to the join effect on
+  // the next render. Otherwise a first-timer on a dead link would get bounced back
+  // to the name gate after retry and asked to introduce themselves again.
   const [identity, setIdentity] = useState(() => getIdentity());
 
   const roomId = useRoomStore((state) => state.roomId);
@@ -45,14 +42,9 @@ export default function Room() {
   const [panelOpen, setPanelOpen] = useState(false);
   const panelToggleRef = useRef<HTMLButtonElement>(null);
 
-  /**
-   * Closing the panel makes it `inert`, and at that moment focus is normally
-   * *inside* it — the ✕ that triggered the close lives there. Leaving it stranded
-   * drops a keyboard user to the top of the document with nothing to come back to
-   * (and is the exact condition Chrome warns about with "Blocked aria-hidden on an
-   * element because its descendant retained focus"), so focus is handed to the one
-   * control that can reopen the panel.
-   */
+  // Closing the panel makes it inert, and focus is usually inside it (the ✕ that
+  // closed it lives there). Leaving it stranded drops a keyboard user to the top of
+  // the page, so we hand focus to the control that can reopen the panel.
   const closePanel = () => {
     setPanelOpen(false);
     panelToggleRef.current?.focus();
@@ -60,27 +52,22 @@ export default function Room() {
 
   const wantsToJoin = code.trim().toUpperCase();
 
-  /**
-   * Leaving has to actually leave.
-   *
-   * `leaveRoom()` clears the store, and the join effect just below reads an empty
-   * store as "not in a room yet" — so while this page stayed mounted, the effect
-   * re-joined the very code being left, and the only visible result was a
-   * "Reconnecting to the room…" banner that never went away. Unmounting first
-   * makes the button mean what it says.
-   */
+  // Leaving has to actually leave. leaveRoom() clears the store, and the join
+  // effect below reads an empty store as "not in a room yet" - so while this page
+  // stayed mounted it re-joined the very code being left, leaving a stuck
+  // "Reconnecting…" banner. Unmounting first makes the button do what it says.
   const onLeave = () => {
     leaveRoom();
     navigate('/');
   };
 
   useEffect(() => {
-    // `joinError` is in the dependency list on purpose: it both stops the retry
-    // loop (a refused join must not be re-sent on every render) and restarts it,
-    // because clearing it is exactly what the retry button does.
+    // joinError is in the dependency list on purpose: it both stops the retry loop
+    // (a refused join shouldn't re-send every render) and restarts it, since
+    // clearing it is exactly what the retry button does.
     if (status !== 'connected' || removed || joinError) return;
     if (roomId === wantsToJoin && me) return;
-    if (!identity.username) return; // waiting for the name gate below
+    if (!identity.username) return; // waiting on the name gate below
     joinRoom(wantsToJoin, identity.username, (result) => {
       if (!result.ok) useRoomStore.getState().setJoinError(result.error || 'Could not join that room.');
     });
@@ -98,8 +85,8 @@ export default function Room() {
     const next = { ...identity, username: trimmed };
     localStorage.setItem('watch-party:identity', JSON.stringify(next));
     setIdentity(next);
-    // Setting the identity above re-runs the join effect, which is the same emit
-    // — so this path sends `join_room` once, from the effect, not twice.
+    // Setting identity above re-runs the join effect, which does the same emit - so
+    // this path sends join_room once (from the effect), not twice.
   };
 
   if (removed) return <RemovedScreen removed={removed} />;
@@ -148,8 +135,8 @@ export default function Room() {
           <span className="room__transport" title={`Socket.IO over ${transport || 'pending'}`}>
             {transport === 'websocket' ? 'live' : transport || 'connecting'}
           </span>
-          {/* The same live sound-wave from the landing title, parked after the
-              "live" tag so the room bar reads as on-air too. Purely decorative. */}
+          {/* The same decorative CSS sound-wave from the landing title, after the
+              "live" tag. Purely cosmetic. */}
           <span className="brand-wave brand-wave--room" aria-hidden>
             {Array.from({ length: 18 }).map((_, i) => (
               <i key={i} />
@@ -177,11 +164,10 @@ export default function Room() {
         <VideoStage />
 
         {/*
-          Always-on live chat, docked right beside the video. It is the very
-          same ChatPanel that the drawer carries on phones — one store, one
-          socket path — so anything anyone types lands here for every client
-          the instant the server broadcasts it. The tabbed SidePanel above it
-          became a slide-over drawer so this rail can own the right edge.
+          Always-on live chat, docked right beside the video. It's the same
+          ChatPanel the drawer uses on phones - one store, one socket path - so
+          anything typed lands here for every client as soon as the server
+          broadcasts it. On smaller screens the SidePanel drawer covers this instead.
         */}
         <aside className="livechat" aria-label="Live chat">
           <header className="livechat__head">

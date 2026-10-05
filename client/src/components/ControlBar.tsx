@@ -11,40 +11,35 @@ interface Props {
 /**
  * Playback controls.
  *
- * The rule this component lives by: **it never asks itself for permission.**
- * A click always calls `play()` / `pause()` / `seek()`, and the server's gate
- * decides whether that becomes an action or an approval request. So there is no
- * `if (role === 'participant') emitRequest()` branch here — which is precisely
- * the branch that would drift out of sync with the backend and become a hole.
+ * The rule here: this component never asks itself for permission. A click always
+ * calls play() / pause() / seek(), and the server's gate decides whether that
+ * becomes an action or an approval request. There's no `if (role === 'participant')
+ * emitRequest()` branch, which is exactly the branch that would drift from the
+ * backend and become a hole.
  *
- * What the capability list *is* used for is presentation: showing "Ask the host
- * to…" instead of "Pause", and dimming the control, so the user is never
- * surprised by a request dialog they did not expect.
+ * The capability list is only used for presentation: showing "Ask the host to..."
+ * instead of "Pause", and dimming the control, so the user isn't surprised by a
+ * request dialog they didn't expect.
  */
 export default function ControlBar({ player }: Props) {
   const capabilities = useRoomStore((state) => state.me?.capabilities);
   const sync = useRoomStore((state) => state.sync);
   const pending = useRoomStore((state) => state.myPendingActions);
   // Demo room: playback is local-only, so the controls drive this screen's own
-  // player and never emit to the room. See `useYouTubeSync`.
+  // player and never emit to the room. See useYouTubeSync.
   const isDemo = useRoomStore((state) => state.isDemo);
-  // Demo playback never round-trips through the server, so the live sync ripple
-  // (driven by `syncPulse`) would never fire here. We bump it by hand on a local
-  // play/pause/seek so the demo gets the same on-air feedback as a real room.
+  // Demo playback doesn't go through the server, so the sync ripple (driven by
+  // syncPulse) wouldn't fire here. We bump it by hand on a local play/pause/seek so
+  // the demo gets the same feedback as a real room.
   const bumpSyncPulse = useRoomStore((state) => state.bumpSyncPulse);
   const [urlDraft, setUrlDraft] = useState('');
   const [urlOpen, setUrlOpen] = useState(false);
-  /**
-   * The value being dragged, or `null` when nobody is scrubbing.
-   *
-   * The slider used to be a fully-controlled input bound to the player's real
-   * `position` — which only refreshes a few times a second and lags behind an
-   * async `seekTo`. So while the host dragged, every move both flooded the server
-   * with `seek` events *and* re-rendered the thumb back to the stale position it
-   * had not reached yet: the handle fought the finger and looked stuck. Holding the
-   * in-flight value here lets the thumb track the pointer exactly, and the seek is
-   * committed once, on release.
-   */
+  // The value being dragged, or null when nobody is scrubbing. The slider used to
+  // be fully controlled by the player's real position, which only refreshes a few
+  // times a second and lags an async seekTo - so dragging both flooded the server
+  // with seek events and snapped the thumb back to a stale position. Holding the
+  // in-flight value here lets the thumb follow the pointer, and the seek fires once
+  // on release.
   const [scrub, setScrub] = useState<number | null>(null);
 
   const canControl = isDemo || Boolean(capabilities?.allowedActions.includes('play'));
@@ -54,19 +49,16 @@ export default function ControlBar({ player }: Props) {
 
   const pendingFor = (action: string) => pending.some((request) => request.action === action);
 
-  /**
-   * Commit a scrub: one seek to the server, and — for someone who can actually
-   * control the room — an instant local jump so the host sees it right away
-   * instead of waiting a round-trip. A Participant gets no local jump: their seek
-   * is only a request, so previewing it would move them ahead of a room that has
-   * not agreed yet.
-   */
+  // Commit a scrub: one seek to the server, and - for someone who can control the
+  // room - an instant local jump so the host sees it right away instead of waiting
+  // a round-trip. A Participant gets no local jump: their seek is only a request,
+  // so previewing it would move them ahead of a room that hasn't agreed yet.
   const commitSeek = () => {
     if (scrub === null) return;
     const target = scrub;
     setScrub(null);
-    // A demo seek is entirely local — move this screen's player and stop; there
-    // is no room to notify and no host to ask.
+    // A demo seek is entirely local - move this screen's player and stop; no room
+    // to notify and no host to ask.
     if (isDemo) {
       player.seekLocal(target);
       bumpSyncPulse();
@@ -95,7 +87,7 @@ export default function ControlBar({ player }: Props) {
             if (isDemo) {
               if (player.playing) player.pauseLocal();
               else player.playLocal();
-              bumpSyncPulse(); // fire the live ripple locally — no server broadcast in a demo
+              bumpSyncPulse(); // fire the ripple locally - no server broadcast in a demo
               return;
             }
             return player.playing ? pause() : play();

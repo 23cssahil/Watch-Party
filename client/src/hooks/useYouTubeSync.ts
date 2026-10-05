@@ -5,39 +5,31 @@ import { socket } from '../socket';
 import type { SyncState } from '../types';
 
 /**
- * ---------------------------------------------------------------------------
- * useYouTubeSync — keeps a local YouTube player faithful to the room.
- * ---------------------------------------------------------------------------
+ * useYouTubeSync - keeps the local YouTube player in sync with the room.
  *
- * Three problems had to be solved here, and they are the three worth talking
- * about in an interview:
+ * Three things were tricky here:
  *
- * 1. **Feedback loops.** A naive implementation emits "I paused" whenever the
- *    player reports a pause. But the player also reports a pause when the *server*
- *    told us to pause — so the room echoes forever and everyone fights.
- *    Fixed structurally, not with a flag race: **nothing in this file ever
- *    emits a playback event.** Only a click on our own control bar does. The
- *    player's `onStateChange` is read purely to detect local conditions such as
- *    a blocked autoplay.
+ * 1. Feedback loops. If we sent "I paused" every time the player reports a
+ *    pause, it would also fire when the server told us to pause, and the room
+ *    would echo forever. So nothing in this file emits a playback event - only
+ *    clicks on our own control bar do. onStateChange is read just to detect
+ *    local things like a blocked autoplay.
  *
- * 2. **The sync-vs-user race.** When we call `pauseVideo()` the API fires
- *    `onStateChange` asynchronously, which used to make the UI flicker as if the
- *    viewer had paused it themselves. `suppressUntilRef` marks the window in
- *    which state changes are *expected* rather than interesting.
+ * 2. Sync vs user race. When we call pauseVideo() the API fires onStateChange
+ *    a moment later, which used to flicker the UI as if the viewer paused it.
+ *    suppressUntilRef marks the window where those changes are expected.
  *
- * 3. **Latency makes a timestamp stale.** `sync_state` says "position 42.0", but
- *    we receive it 120 ms later. Applying 42.0 puts the whole room 120 ms behind
- *    the host, permanently. So we always aim at `expectedPosition()`, which
- *    projects the server's number forward using the local elapsed time.
+ * 3. Latency makes a timestamp stale. sync_state says "position 42.0" but we
+ *    get it ~120ms later, so applying 42.0 exactly would leave the room behind
+ *    the host. We aim at expectedPosition() instead, which projects the number
+ *    forward using local elapsed time.
  *
- * Autoplay policy is handled honestly: a browser will refuse to start a video
- * with sound without a user gesture, so if we are told to play and the player
- * does not play, we surface a "Tap to sync" overlay instead of silently
- * desyncing or muting the room without asking.
+ * Autoplay: a browser won't start a video with sound without a user gesture, so
+ * if we're told to play and nothing happens we show a "Tap to sync" overlay
+ * rather than silently muting or desyncing.
  *
- * Position is kept in *this* component's state, not the global store — it ticks
- * several times a second, and putting it in shared state would re-render the
- * participant list, chat and controls on every tick.
+ * Position lives in this component's state, not the global store - it ticks a
+ * few times a second and putting it in shared state would re-render everything.
  */
 
 const DRIFT_TOLERANCE_SEC = 0.4;
@@ -57,14 +49,11 @@ export interface YouTubeSyncState {
   muted: boolean;
   setVolume: (value: number) => void;
   toggleMute: () => void;
-  /** Called by the "Tap to sync" overlay — runs inside a real user gesture. */
+  /** Called by the "Tap to sync" overlay, inside a real user gesture. */
   satisfyGesture: () => void;
   seekLocal: (time: number) => void;
-  /**
-   * Drive the local player directly, with no socket emit. Used only in the
-   * demo room, where play/pause is each viewer's own business (their screen
-   * alone), not a room-wide instruction.
-   */
+  /** Move the local player only, no socket emit. Used in the demo room, where
+   *  play/pause is just for this screen, not the whole room. */
   playLocal: () => void;
   pauseLocal: () => void;
 }
@@ -76,11 +65,8 @@ export function useYouTubeSync(
   const apiRef = useRef<YouTubeApi | null>(null);
   const suppressUntilRef = useRef(0);
   const loadedVideoRef = useRef<string | null>(null);
-  /**
-   * False until the room has actually named a video. Kept as the guard on the
-   * error path: an error raised before there is anything to play is about our
-   * placeholder, never about the room, and must not be shown as one.
-   */
+  // Stays false until the room names a video. Used to guard the error path: an
+  // error before there's anything to play is about our placeholder, not the room.
   const hadVideoRef = useRef(false);
 
   const [ready, setReady] = useState(false);
@@ -89,26 +75,21 @@ export function useYouTubeSync(
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
-  /** Title as the player itself reports it — metadata for the room, never a control. */
+  /** Video title read from the player - shown as info, never used as a control. */
   const [videoTitle, setVideoTitle] = useState('');
 
   const sync = useRoomStore((state) => state.sync);
   const roomId = useRoomStore((state) => state.roomId); // presence gate only
-  // Demo room: playback is local-only, so the shared room clock is ignored and
-  // the player follows this screen's own play/pause/seek. See `ControlBar`.
+  // Demo room: playback is local-only, so we ignore the shared room clock and
+  // follow this screen's own play/pause/seek. See ControlBar.
   const isDemo = useRoomStore((state) => state.isDemo);
 
-  /**
-   * Whether the room has named a video yet.
-   *
-   * The player is not constructed before it has. An IFrame API instance created
-   * with no `videoId` produces an iframe with no `src` at all, and from that point
-   * `onReady` is the only thing our whole sync layer waits for — so on a full page
-   * load of `/room/CODE`, where the room state arrives *after* the component
-   * mounted, the player sat dead: no video, an error overlay, and a "Re-sync me"
-   * button that could not help because nothing was ever cued. A client-side join
-   * from Home worked, which is exactly why a refresh looked like a different app.
-   */
+  // True once the room has named a video. We don't build the player before this:
+  // an IFrame API instance with no videoId makes an iframe with no src, and our
+  // whole sync layer waits on onReady. On a fresh load of /room/CODE the room
+  // state arrives after mount, so the player used to sit dead (no video, error
+  // overlay, useless re-sync button). Joining from Home worked fine, which is why
+  // a refresh looked broken.
   const hasVideo = Boolean(sync?.videoId);
 
   const [volume, setVolumeState] = useState(() => {
@@ -133,11 +114,8 @@ export function useYouTubeSync(
         apiRef.current = api;
         hadVideoRef.current = true;
 
-        /**
-         * Read the title off the player rather than tracking it next to the
-         * `loadVideoById` calls, so it always describes what is actually loaded
-         * and cannot go stale when the host switches video mid-room.
-         */
+        // Read the title straight off the player instead of tracking it next to
+        // loadVideoById, so it always matches what's actually loaded.
         const readTitle = () => {
           const data = playerRef.current?.getVideoData?.();
           if (data?.title) setVideoTitle(data.title);
@@ -145,19 +123,14 @@ export function useYouTubeSync(
 
         playerRef.current = new api.Player(element, {
           videoId: initialVideo,
-          // Deliberately no `host` override.
-          //
-          // Declaring youtube-nocookie.com here while the API script is loaded
-          // from www.youtube.com leaves www-widgetapi posting messages whose
-          // target origin disagrees with the frame it is talking to, and Chrome
-          // fills the console with "Failed to execute 'postMessage' on 'DOMWindow'".
-          // The nocookie domain's privacy edge is not worth a red console on every
-          // load; `origin` below is the parameter that actually authorises the
-          // embed, and that one stays.
+          // No `host` override on purpose. Setting youtube-nocookie.com here while
+          // the API script loads from www.youtube.com makes www-widgetapi post
+          // messages to the wrong origin, and Chrome floods the console with
+          // postMessage errors. The `origin` param below is what actually
+          // authorises the embed, and that one stays.
           playerVars: {
-            // Our own control bar is the source of truth, so YouTube's chrome is
-            // removed. Leaving it in would let a viewer scrub or pause through a
-            // route the sync layer never sees — the classic way these apps drift.
+            // We use our own control bar, so hide YouTube's. Leaving it would let a
+            // viewer scrub/pause through a path the sync layer never sees.
             controls: 0,
             disablekb: 1,
             rel: 0,
@@ -182,14 +155,14 @@ export function useYouTubeSync(
               const isPlaying = event.data === api.PlayerState.PLAYING;
               setPlaying(isPlaying);
               if (isPlaying) setNeedsGesture(false);
-              // The player produced a frame, so whatever error was on screen was
-              // about a state we have already left. Errors never linger here.
+              // Player produced a frame, so any old error was about a state we've
+              // already left - clear it so errors don't linger.
               setError(null);
 
               const nextDuration = playerRef.current.getDuration?.() || 0;
               if (nextDuration > 0) setDuration(nextDuration);
-              // A state change is also the moment a newly loaded video becomes
-              // queryable, so the title cannot lag the video by a whole action.
+              // A state change is when a newly loaded video becomes queryable, so
+              // grab the title here too rather than lagging a whole action behind.
               readTitle();
             },
             onError: (event) => {
@@ -213,11 +186,10 @@ export function useYouTubeSync(
       playerRef.current = null;
       loadedVideoRef.current = null;
     };
-    // `hasVideo` flips exactly once in a room's life (never → named), which is the
-    // point at which there is something to build a player around. Mount-once for
-    // every other reason: the player is imperative and must not be rebuilt on
-    // re-render, and a later video *change* is handled by `cueVideoById`, not by
-    // tearing the iframe down.
+    // hasVideo flips once per room (never -> named), which is when there's finally
+    // something to build a player around. Otherwise mount once: the player is
+    // imperative and shouldn't be rebuilt on re-render. Later video *changes* go
+    // through cueVideoById, not by tearing the iframe down.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerRef, hasVideo]);
 
@@ -229,12 +201,11 @@ export function useYouTubeSync(
 
     if (next.videoId) {
       hadVideoRef.current = true;
-      // A video is now genuinely in play, so any error still on the screen is
-      // history — including the placeholder error described on `hadVideoRef`.
+      // A video is now actually playing, so any error on screen is stale.
       setError(null);
     }
 
-    // Anything the player reports for the next moment is our doing.
+    // Any state change in the next moment is our own doing, ignore it.
     suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
 
     const target = expectedPosition({ sync: next, receivedAt: Date.now() });
@@ -251,10 +222,9 @@ export function useYouTubeSync(
       return;
     }
 
-    // The host IS the source of truth — the server derives position from them.
-    // Seeking the host's own player back to the server's projected position
-    // causes re-buffering, which is the "1 second play then stop" stutter the
-    // new host sees after taking over. Only viewers need position correction.
+    // The host is the source of truth - the server derives position from them.
+    // Seeking the host's own player back causes re-buffering (the "1s play then
+    // stop" stutter a new host sees after taking over). Only viewers need fixing.
     const myRole = useRoomStore.getState().me?.role;
     if (myRole !== 'host') {
       const current = player.getCurrentTime?.() ?? 0;
@@ -268,9 +238,8 @@ export function useYouTubeSync(
   }, []);
 
   useEffect(() => {
-    // In a demo room the shared clock is meaningless — applying it would yank
-    // this viewer's player back to the room's position and undo their own
-    // pause/seek. The player runs purely off local controls here.
+    // In a demo room the shared clock is meaningless - applying it would yank this
+    // viewer back to the room position and undo their own pause/seek.
     if (!ready || !sync || isDemo) return;
     applySync(sync);
   }, [ready, sync, applySync, isDemo]);
@@ -278,23 +247,17 @@ export function useYouTubeSync(
   /**
    * Coming back to a tab that was in the background.
    *
-   * Two things happen to a hidden tab, neither of them chosen by anybody: the
-   * browser throttles its timers (our drift loop can then run once a minute
-   * instead of twice a second), and YouTube's player often pauses itself because
-   * it can see the page is not visible. The room keeps running for everyone else,
-   * which is correct — a host blinking at another tab is not an instruction to
-   * pause a party. What was missing is the *host's own* screen: it sat paused and
-   * then drifted, looking like the room had ignored the host.
-   *
-   * So on return we re-apply the authoritative state immediately rather than
-   * waiting up to a heartbeat for the next one. A local pause caused by the
-   * browser is never broadcast as a room pause, and never left to rot either.
+   * A hidden tab gets throttled (our drift loop may run once a minute instead of
+   * twice a second) and YouTube often pauses itself since the page isn't visible.
+   * The room keeps running for everyone else, which is right. The problem was the
+   * returning viewer's own screen sitting paused and then drifting. So on return
+   * we re-apply the room state immediately instead of waiting for the next
+   * heartbeat. A browser-caused pause is never broadcast as a room pause.
    */
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState !== 'visible' || !ready) return;
-      // A demo viewer's pause is theirs to keep — re-applying the room state on
-      // tab return would silently resume their video, so skip it.
+      // A demo viewer's pause is theirs to keep - don't resume it on tab return.
       if (useRoomStore.getState().isDemo) return;
       const current = useRoomStore.getState().sync;
       if (current) applySync(current);
@@ -313,20 +276,17 @@ export function useYouTubeSync(
       const store = useRoomStore.getState();
       if (!player || !store.sync?.isPlaying) return;
 
-      // Nothing is watching a hidden tab, its timers are throttled anyway, and a
-      // seek issued to a player the browser has paused is how a background tab
-      // ends up stuttering. The `visibilitychange` handler does the real repair
-      // when the tab comes back, in one deliberate step.
+      // Skip hidden tabs: nobody's watching, timers are throttled anyway, and a
+      // seek on a browser-paused player is how a background tab ends up stuttering.
+      // The visibilitychange handler does the real repair when the tab comes back.
       if (document.visibilityState === 'hidden') return;
 
-      // A seek is still settling (or the video is buffering). Correcting during
-      // that window is what makes badly-written sync code stutter, because the
-      // reported position has not caught up with the seek we just issued.
+      // A seek is still settling (or buffering). Correcting during this window is
+      // what makes sync code stutter, since the reported position hasn't caught up.
       if (Date.now() < suppressUntilRef.current) return;
 
-      // The host IS the source of truth — the server's clock is built from their
-      // position. Seeking the host's own player causes buffering, which makes
-      // their video stutter while viewers look fine. Only viewers need correcting.
+      // Host is the source of truth again - the server's clock is built from their
+      // position, so seeking the host causes buffering stutter. Only fix viewers.
       const myRole = store.me?.role;
       if (myRole === 'host') return;
 
@@ -334,8 +294,8 @@ export function useYouTubeSync(
       const current = player.getCurrentTime?.() ?? 0;
       const drift = Math.abs(target - current);
 
-      // Only correct real drift. Seeking on every beat would stall playback
-      // while re-buffering and make the room look *less* stable, not more.
+      // Only correct real drift. Seeking every beat would stall playback on
+      // re-buffering and make the room look less stable, not more.
       if (drift > DRIFT_TOLERANCE_SEC) {
         suppressUntilRef.current = Date.now() + 600;
         player.seekTo(target, true);
@@ -366,16 +326,16 @@ export function useYouTubeSync(
     const player = playerRef.current;
     if (!player || !apiRef.current) return;
 
-    // A demo invites one tap to start its cued video (a genuine gesture is the
-    // only way past a browser's autoplay-with-sound block). Everywhere else we
-    // only need a gesture when the room says it is playing but we are not.
+    // A demo needs one tap to start its cued video (a real gesture is the only way
+    // past the browser's autoplay-with-sound block). Elsewhere we only need a tap
+    // when the room says it's playing but we aren't.
     const wantsPlayback = isDemo ? true : Boolean(sync?.isPlaying);
     if (!wantsPlayback) return;
 
     const timer = window.setTimeout(() => {
-      // A paused player in a hidden tab is the browser being efficient, not a
-      // missing gesture. Raising the overlay for it would park a "Tap to join the
-      // party" button over a party that is already joined.
+      // A paused player in a hidden tab is just the browser being efficient, not a
+      // missing gesture. Showing the overlay there would park a tap button over a
+      // party that's already joined.
       if (document.visibilityState !== 'hidden') {
         const state = player.getPlayerState?.();
         const api = apiRef.current!;
@@ -392,10 +352,9 @@ export function useYouTubeSync(
 
   useEffect(() => {
     if (!ready || !roomId || duration <= 0) return;
-    // The title rides along with the duration because both are facts about the
-    // video the server cannot observe by itself, and `sync?.videoId` is a
-    // dependency so a new video is reported even when its duration happens to
-    // match the old one.
+    // The title is sent with the duration because both are things about the video
+    // the server can't see itself. sync?.videoId is a dependency so a new video is
+    // reported even when its duration matches the old one.
     socket.emit('report_duration', { duration, title: videoTitle });
   }, [ready, roomId, duration, videoTitle, sync?.videoId]);
 
@@ -406,8 +365,8 @@ export function useYouTubeSync(
     if (!player) return;
     const store = useRoomStore.getState();
     suppressUntilRef.current = Date.now() + SUPPRESS_WINDOW_MS;
-    // In a demo the tap always *starts* the cued video (there is no room clock to
-    // read a play/pause decision from); elsewhere we honour what the room is doing.
+    // In a demo the tap always starts the cued video (no room clock to read a
+    // decision from); elsewhere we honour whatever the room is doing.
     if (store.isDemo || store.sync?.isPlaying) {
       player.unMute();
       player.playVideo();
