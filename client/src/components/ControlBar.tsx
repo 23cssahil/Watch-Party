@@ -28,6 +28,10 @@ export default function ControlBar({ player }: Props) {
   // Demo room: playback is local-only, so the controls drive this screen's own
   // player and never emit to the room. See `useYouTubeSync`.
   const isDemo = useRoomStore((state) => state.isDemo);
+  // Demo playback never round-trips through the server, so the live sync ripple
+  // (driven by `syncPulse`) would never fire here. We bump it by hand on a local
+  // play/pause/seek so the demo gets the same on-air feedback as a real room.
+  const bumpSyncPulse = useRoomStore((state) => state.bumpSyncPulse);
   const [urlDraft, setUrlDraft] = useState('');
   const [urlOpen, setUrlOpen] = useState(false);
   /**
@@ -65,6 +69,7 @@ export default function ControlBar({ player }: Props) {
     // is no room to notify and no host to ask.
     if (isDemo) {
       player.seekLocal(target);
+      bumpSyncPulse();
       return;
     }
     if (canControl) player.seekLocal(target);
@@ -87,7 +92,12 @@ export default function ControlBar({ player }: Props) {
           type="button"
           className={`controls__play ${canControl ? '' : 'controls__play--ask'}`}
           onClick={() => {
-            if (isDemo) return player.playing ? player.pauseLocal() : player.playLocal();
+            if (isDemo) {
+              if (player.playing) player.pauseLocal();
+              else player.playLocal();
+              bumpSyncPulse(); // fire the live ripple locally — no server broadcast in a demo
+              return;
+            }
             return player.playing ? pause() : play();
           }}
           disabled={!sync}
