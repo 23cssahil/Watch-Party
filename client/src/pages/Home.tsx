@@ -438,6 +438,16 @@ export default function Home() {
           <span>Share a link, and whoever opens it is in the room.</span>
         </li>
       </ul>
+
+      <footer className="home__footer">
+        <p>© {new Date().getFullYear()} Watch Party. All rights reserved.</p>
+        <p>
+          Made by Sahil ·{' '}
+          <a className="home__footer-mail" href="mailto:23cssahil@gmail.com">
+            23cssahil@gmail.com
+          </a>
+        </p>
+      </footer>
     </main>
   );
 }
