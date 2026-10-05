@@ -5,6 +5,7 @@ import { getIdentity, rememberUsername, socket } from '../socket';
 import { useRoomStore } from '../store/roomStore';
 import { extractVideoId } from '../lib/format';
 import type { JoinResult } from '../actions';
+import SiteFooter from '../components/SiteFooter';
 
 /**
  * Shown when a button was pressed after the transport had *stopped* retrying.
@@ -439,15 +440,7 @@ export default function Home() {
         </li>
       </ul>
 
-      <footer className="home__footer">
-        <p>© {new Date().getFullYear()} Watch Party. All rights reserved.</p>
-        <p>
-          Made by Sahil ·{' '}
-          <a className="home__footer-mail" href="mailto:23cssahil@gmail.com">
-            23cssahil@gmail.com
-          </a>
-        </p>
-      </footer>
+      <SiteFooter />
     </main>
   );
 }

@@ -335,6 +335,9 @@ a {
   color: var(--muted);
   font-size: 13px;
   margin-top: -6px;
+  /* Reserve two lines so the shorter "Join" hint does not pull its input box
+     higher than the "Start" pane's — the two fields then line up across columns. */
+  min-height: 38px;
 }
 .pane__check {
   font-size: 12.5px;
@@ -345,7 +348,7 @@ a {
 .pane__check--bad {
   color: var(--warn);
 }
-.pane .btn {
+.pane > .btn {
   margin-top: auto;
 }
 
@@ -427,6 +430,61 @@ a {
   text-decoration: none;
 }
 .home__footer-mail:hover {
+  text-decoration: underline;
+}
+.home__footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+}
+.home__footer-links a {
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 600;
+}
+.home__footer-links a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.home__footer-meta {
+  opacity: 0.85;
+}
+
+/* -------------------------------------------------------- legal / about */
+
+.legal__body {
+  margin-top: 26px;
+  max-width: 760px;
+}
+.legal__body h2 {
+  font-size: 18px;
+  margin: 26px 0 6px;
+}
+.legal__body h2:first-child {
+  margin-top: 0;
+}
+.legal__body p {
+  color: #c4c9d6;
+  font-size: 15px;
+  line-height: 1.65;
+  margin: 0 0 12px;
+}
+.legal__updated {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.legal__back {
+  margin-top: 26px;
+}
+.legal__back a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+.legal__back a:hover {
   text-decoration: underline;
 }
 
@@ -2355,11 +2413,13 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1 1 auto;
 }
 .pane__actions {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  margin-top: auto;
 }
 .pane__actions .btn { flex: 1 1 auto; min-width: 120px; }
 .btn--demo {

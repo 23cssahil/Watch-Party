@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { useSocket } from './hooks/useSocket';
 import Home from './pages/Home';
 import Room from './pages/Room';
+import { About, Privacy } from './pages/Legal';
 import Toasts from './components/Toasts';
 
 /**
@@ -19,6 +20,8 @@ export default function App() {
     <>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/privacy" element={<Privacy />} />
         <Route path="/room/:code" element={<Room />} />
         {/* Short form, for links pasted into chat: /r/ABC123 */}
         <Route path="/r/:code" element={<ShortLinkRedirect />} />
